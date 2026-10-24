@@ -1,7 +1,7 @@
 import React from 'react';
-import { ShieldCheck, HardDrive, RefreshCw, Clock, Terminal, AlertTriangle, CheckCircle } from 'lucide-react';
+import { ShieldCheck, HardDrive, RefreshCw, Clock, Terminal, AlertTriangle, CheckCircle, LogOut } from 'lucide-react';
 
-export default function SessionTab({ user }) {
+export default function SessionTab({ user, onLogout, isLoggingOut }) {
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       {/* Session Security Banner */}
@@ -116,6 +116,43 @@ print(f"Logged in as: {profile['user_name']} ({profile['user_id']})")
 # Example: Get quote for NIFTY 50
 # quotes = kite.quote(["NSE:NIFTY 50"])`}
         </pre>
+      </div>
+
+      {/* Session Management / Disconnect Card */}
+      <div
+        className="card"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '1rem',
+          borderLeft: '4px solid #ef4444',
+          background: '#ffffff',
+        }}
+      >
+        <div>
+          <h4 style={{ fontSize: '1rem', fontWeight: 600, color: '#dc2626' }}>Terminate Active Session</h4>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+            Clears the cached access token from server storage (<code>backend/session.json</code>) and returns to the login screen.
+          </p>
+        </div>
+        {onLogout && (
+          <button
+            type="button"
+            onClick={onLogout}
+            disabled={isLoggingOut}
+            className="btn btn-danger"
+            style={{ padding: '0.65rem 1.25rem' }}
+          >
+            {isLoggingOut ? (
+              <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} />
+            ) : (
+              <LogOut size={16} />
+            )}
+            <span>{isLoggingOut ? 'Terminating Session...' : 'Disconnect & Logout'}</span>
+          </button>
+        )}
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ShieldCheck, LogOut, Activity, User, KeyRound } from 'lucide-react';
 
-export default function Navbar({ isAuthenticated, user, onLogout }) {
+export default function Navbar({ isAuthenticated, user, onLogout, isLoggingOut }) {
   return (
     <header className="navbar">
       <div className="nav-brand">
@@ -22,12 +22,19 @@ export default function Navbar({ isAuthenticated, user, onLogout }) {
             </div>
 
             <button
+              type="button"
               onClick={onLogout}
-              className="btn btn-secondary btn-ghost"
+              disabled={isLoggingOut}
+              className="btn btn-secondary"
+              style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem', cursor: isLoggingOut ? 'wait' : 'pointer' }}
               title="Logout and invalidate local backend session"
             >
-              <LogOut size={16} />
-              <span>Logout</span>
+              {isLoggingOut ? (
+                <div className="spinner" style={{ width: '13px', height: '13px', borderWidth: '2px' }}></div>
+              ) : (
+                <LogOut size={15} />
+              )}
+              <span>{isLoggingOut ? 'Logging out...' : 'Logout'}</span>
             </button>
           </>
         ) : (

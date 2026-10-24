@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
@@ -62,12 +62,15 @@ def get_login_url(api_key: Optional[str] = None):
     }
 
 @app.get("/api/auth/status")
-def auth_status():
+def auth_status(response: Response):
     """
     Checks if a valid, active session token is already cached on the server.
     This enables reusing the access token during local development
     without prompting for re-login on hot reloads.
     """
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     status_info = kite_manager.get_auth_status()
     return status_info
 
@@ -123,10 +126,13 @@ def get_user_profile():
         )
 
 @app.post("/api/auth/logout")
-def logout():
+def logout(response: Response):
     """
     Clears local saved session token and logs out user from backend.
     """
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     kite_manager.logout()
     return {
         "success": True,

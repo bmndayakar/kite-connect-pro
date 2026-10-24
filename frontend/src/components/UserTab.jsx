@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Shield, RefreshCw, Layers, TrendingUp, Mail, Building, Tag, Check, AlertCircle } from 'lucide-react';
+import { User, Shield, RefreshCw, Layers, TrendingUp, Mail, Building, Tag, Check, AlertCircle, LogOut } from 'lucide-react';
 import { fetchUserProfile } from '../api';
 
 // Friendly descriptions for Zerodha product codes
@@ -21,7 +21,7 @@ const EXCHANGE_DESCRIPTIONS = {
   BFO: 'BSE Futures & Options',
 };
 
-export default function UserTab() {
+export default function UserTab({ onLogout, isLoggingOut }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -141,15 +141,36 @@ export default function UserTab() {
           </div>
         </div>
 
-        <button
-          onClick={() => loadProfile(true)}
-          className="btn btn-secondary"
-          disabled={refreshing}
-          style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
-        >
-          <RefreshCw size={15} className={refreshing ? 'spinner' : ''} />
-          <span>{refreshing ? 'Refreshing...' : 'Refresh Profile'}</span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => loadProfile(true)}
+            className="btn btn-secondary"
+            disabled={refreshing}
+            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+          >
+            <RefreshCw size={15} className={refreshing ? 'spinner' : ''} />
+            <span>{refreshing ? 'Refreshing...' : 'Refresh Profile'}</span>
+          </button>
+
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              disabled={isLoggingOut}
+              className="btn btn-danger"
+              style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+              title="Logout and invalidate session"
+            >
+              {isLoggingOut ? (
+                <div className="spinner" style={{ width: '13px', height: '13px', borderWidth: '2px' }} />
+              ) : (
+                <LogOut size={15} />
+              )}
+              <span>{isLoggingOut ? 'Logging out...' : 'Logout'}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Grid: Products and Exchanges */}

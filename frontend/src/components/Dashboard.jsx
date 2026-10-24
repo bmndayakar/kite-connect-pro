@@ -5,7 +5,7 @@ import SignalsTab from './SignalsTab';
 import SessionTab from './SessionTab';
 import OverviewTab from './OverviewTab';
 
-export default function Dashboard({ user, onLogout }) {
+export default function Dashboard({ user, onLogout, isLoggingOut }) {
   // Default to the required 'user' tab
   const [activeTab, setActiveTab] = useState('user');
 
@@ -48,10 +48,10 @@ export default function Dashboard({ user, onLogout }) {
 
       {/* Tab Panels */}
       <div className="tab-content">
-        {activeTab === 'user' && <UserTab />}
+        {activeTab === 'user' && <UserTab onLogout={onLogout} isLoggingOut={isLoggingOut} />}
         {activeTab === 'signals' && <SignalsTab />}
         {activeTab === 'overview' && <OverviewTab user={user} onSelectTab={setActiveTab} />}
-        {activeTab === 'session' && <SessionTab user={user} />}
+        {activeTab === 'session' && <SessionTab user={user} onLogout={onLogout} isLoggingOut={isLoggingOut} />}
       </div>
     </div>
   );

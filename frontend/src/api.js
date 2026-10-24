@@ -16,7 +16,13 @@ export async function fetchInitialCredentials() {
 
 export async function checkAuthStatus() {
   try {
-    const res = await fetch(`${BASE_URL}/auth/status`);
+    const res = await fetch(`${BASE_URL}/auth/status?_t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+      },
+    });
     if (!res.ok) return { authenticated: false };
     return await res.json();
   } catch (err) {
@@ -56,8 +62,14 @@ export async function fetchUserProfile() {
 
 export async function logoutUser() {
   try {
-    const res = await fetch(`${BASE_URL}/auth/logout`, {
+    const res = await fetch(`${BASE_URL}/auth/logout?_t=${Date.now()}`, {
       method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      },
+      body: JSON.stringify({}),
     });
     return await res.json();
   } catch (err) {

@@ -8,6 +8,7 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Re-use saved access token on initial load / code change (HMR)
   useEffect(() => {
@@ -44,9 +45,17 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    await logoutUser();
+    setIsLoggingOut(true);
+    // Immediately clear authentication state for instant UI responsiveness
     setIsAuthenticated(false);
     setUser(null);
+    try {
+      await logoutUser();
+    } catch (err) {
+      console.warn('Backend logout call error:', err);
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   return (
@@ -55,11 +64,12 @@ export default function App() {
         isAuthenticated={isAuthenticated}
         user={user}
         onLogout={handleLogout}
+        isLoggingOut={isLoggingOut}
       />
 
       <main className="main-content">
         {isAuthenticated ? (
-          <Dashboard user={user} onLogout={handleLogout} />
+          <Dashboard user={user} onLogout={handleLogout} isLoggingOut={isLoggingOut} />
         ) : (
           <LoginPage
             onLoginSuccess={handleLoginSuccess}
