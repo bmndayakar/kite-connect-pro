@@ -99,4 +99,39 @@ export async function scanSignals({ shortSma = 6, longSma = 30, lookbackDays = 1
   return data;
 }
 
+export async function fetchScannerData(forceRefresh = false) {
+  const url = `${BASE_URL}/scanner-data?force_refresh=${forceRefresh}&_t=${Date.now()}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || 'Failed to fetch scanner data.');
+  }
+  return data;
+}
+
+export async function fetchOhlcSnapshot(tokens = []) {
+  if (!tokens || tokens.length === 0) return {};
+  const tokenStr = Array.isArray(tokens) ? tokens.join(',') : tokens;
+  const res = await fetch(`${BASE_URL}/ohlc?tokens=${tokenStr}&_t=${Date.now()}`);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || 'Failed to fetch OHLC snapshot.');
+  }
+  return data;
+}
+
+export function getWebSocketUrl(tokens = [], mode = 'full') {
+  const tokenStr = Array.isArray(tokens) ? tokens.join(',') : tokens;
+  let wsOrigin = '';
+  if (BASE_URL.startsWith('http')) {
+    wsOrigin = BASE_URL.replace(/^http/, 'ws');
+  } else {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    wsOrigin = `${protocol}//${window.location.host}${BASE_URL}`;
+  }
+  const baseClean = wsOrigin.replace(/\/+$/, '');
+  const rootWs = baseClean.endsWith('/api') ? baseClean.slice(0, -4) : baseClean;
+  return `${rootWs}/ws/ticks?tokens=${encodeURIComponent(tokenStr)}&mode=${encodeURIComponent(mode)}`;
+}
+
 

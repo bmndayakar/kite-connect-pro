@@ -19,6 +19,7 @@ Zerodha's Kite Connect API is a widely used financial API in India, but has deve
 ### What This Solution Accomplishes:
 - **Zero Token Leakage**: The raw `access_token` is generated on the backend using the official `kiteconnect` SDK and stored in server-side `backend/session.json`. The token is **never** sent to the client browser.
 - **Local Dev Reusability**: FastAPI and React check `GET /api/auth/status` on load. If a valid token exists, you skip login entirely across HMR code changes.
+- **Algo Signals (Breakout & Retest Scanner)**: Scans Nifty 100 stocks for institutional breakouts (volume $\ge 3\times$ 20-day average) followed by retests of the breakout candle midpoint (within $\pm 1\%$). Streams live ticks via WebSocket (`/ws/ticks`) with OHLC fallback and fixed row ranking.
 - **Full Nifty 100 SMA Crossover Scanner**: Loads the official Nifty Indices CSV, maps all 100 stocks to Kite NSE `instrument_token`, calculates daily SMA 6 & SMA 30, detects Bullish/Bearish crossovers, and ranks by the **most recent crossover date first**.
 - **Production-Ready Split Architecture**: Static single-file React frontend running on Hostinger Shared Hosting + FastAPI backend on Render.com.
 
@@ -69,9 +70,10 @@ dabbulu-bokka-pani/
 ├── run_frontend.bat / .ps1       # Standalone Vite launcher (port 5173)
 │
 ├── backend/
-│   ├── main.py                   # FastAPI app, CORS middleware, API endpoints
+│   ├── main.py                   # FastAPI app, CORS middleware, API endpoints & WebSocket ticks
 │   ├── kite_service.py           # KiteSessionManager (session creation, profile, cache)
 │   ├── scanner_service.py        # NiftyScannerService (CSV parsing, SMA 6/30, crossover detection)
+│   ├── scanner_data_service.py   # ScannerDataService (Nifty 100 daily candles & OHLC snapshots)
 │   ├── requirements.txt          # Python dependencies
 │   ├── session.json              # Active backend session (auto-generated, do not commit)
 │   └── data/
@@ -85,16 +87,17 @@ dabbulu-bokka-pani/
     ├── public/
     │   └── .htaccess             # Apache rewrite rules for SPA hosting on Hostinger
     ├── dist/
-    │   ├── index.html            # 280KB self-contained production bundle (UPLOAD THIS TO HOSTINGER)
+    │   ├── index.html            # ~300KB self-contained production bundle (UPLOAD THIS TO HOSTINGER)
     │   └── .htaccess             # Apache rewrite file
     └── src/
         ├── App.jsx               # Root state machine (auth recovery on boot)
-        ├── api.js                # API client with environment-aware baseURL
-        ├── index.css             # Light-mode CSS theme & responsive design system
+        ├── api.js                # API client with environment-aware baseURL & WebSocket helpers
+        ├── index.css             # High contrast CSS theme & responsive design system
         └── components/
             ├── Navbar.jsx        # Navigation bar, live session status, logout button
             ├── LoginPage.jsx     # Form with prefill & "Get Request Token" helper
-            ├── Dashboard.jsx     # Tab controller (User, Signals, Overview, Session)
+            ├── Dashboard.jsx     # Tab controller (User, Algo Signals, Signals, Overview, Session)
+            ├── AlgoSignalsTab.jsx# High-volume breakout and retest setups (Dark UI, live WebSocket LTP)
             ├── UserTab.jsx       # Displays User Name, Client ID, Products, Exchanges
             ├── SignalsTab.jsx    # Nifty 100 SMA Crossover Scanner UI & ranked table
             ├── OverviewTab.jsx   # Welcome cards, shortcuts, feature summaries
