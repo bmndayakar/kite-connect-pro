@@ -207,7 +207,11 @@ export default function AlgoSignalsTab({
       }
     } catch (err) {
       console.error('[AlgoSignals] Data load error:', err);
-      setError(err.message || 'Failed to load scanner data.');
+      if (err.message && (err.message.includes('Not Found') || err.message.includes('404'))) {
+        setError('Endpoint /api/scanner-data returned 404 Not Found. Your Render backend is still running the previous deployment. Please click "Manual Deploy ➔ Deploy latest commit" on dashboard.render.com to update.');
+      } else {
+        setError(err.message || 'Failed to load scanner data.');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -486,12 +490,21 @@ export default function AlgoSignalsTab({
       )}
 
       {error && (
-        <div className="alert alert-error" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1.15rem' }}>
-          <AlertTriangle size={18} color="var(--danger)" />
-          <div>
-            <strong>API Error: </strong>
-            {error}
+        <div className="alert alert-error" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', padding: '0.85rem 1.15rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <AlertTriangle size={18} color="var(--danger)" style={{ flexShrink: 0 }} />
+            <div>
+              <strong>API Error: </strong>
+              {error}
+            </div>
           </div>
+          <button
+            onClick={() => loadData(true)}
+            className="btn btn-secondary"
+            style={{ padding: '0.35rem 0.85rem', fontSize: '0.75rem', whiteSpace: 'nowrap', cursor: 'pointer' }}
+          >
+            Retry
+          </button>
         </div>
       )}
 
