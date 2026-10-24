@@ -12,9 +12,12 @@ export default function App() {
 
   // Re-use saved access token on initial load / code change (HMR)
   useEffect(() => {
+    let isCancelled = false;
+
     async function verifyExistingSession() {
       try {
-        const res = await checkAuthStatus();
+        const res = await checkAuthStatus(12000);
+        if (isCancelled) return;
         if (res && res.authenticated) {
           setIsAuthenticated(true);
           setUser({
@@ -29,14 +32,31 @@ export default function App() {
           setUser(null);
         }
       } catch (err) {
-        console.warn('[Auth] No existing active session detected:', err);
-        setIsAuthenticated(false);
+        if (!isCancelled) {
+          console.warn('[Auth] No existing active session detected:', err);
+          setIsAuthenticated(false);
+        }
       } finally {
-        setIsCheckingSession(false);
+        if (!isCancelled) {
+          setIsCheckingSession(false);
+        }
       }
     }
 
     verifyExistingSession();
+
+    // Soft fallback: if check takes more than 4 seconds, advance to login page
+    // so the user is never stuck on a full-page loading spinner!
+    const softTimeout = setTimeout(() => {
+      if (!isCancelled) {
+        setIsCheckingSession(false);
+      }
+    }, 4000);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(softTimeout);
+    };
   }, []);
 
   const handleLoginSuccess = (userData) => {
@@ -74,6 +94,7 @@ export default function App() {
           <LoginPage
             onLoginSuccess={handleLoginSuccess}
             isCheckingExistingSession={isCheckingSession}
+            onSkipSessionCheck={() => setIsCheckingSession(false)}
           />
         )}
       </main>

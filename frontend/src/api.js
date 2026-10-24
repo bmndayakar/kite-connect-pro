@@ -4,29 +4,40 @@
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export async function fetchInitialCredentials() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6000);
   try {
-    const res = await fetch(`${BASE_URL}/credentials`);
+    const res = await fetch(`${BASE_URL}/credentials`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
     if (!res.ok) throw new Error('Failed to load initial credentials');
     return await res.json();
   } catch (err) {
-    console.warn('Initial credentials fetch failed:', err);
+    clearTimeout(timeoutId);
+    console.warn('Initial credentials fetch failed or timed out:', err);
     return { api_key: '', api_secret: '' };
   }
 }
 
-export async function checkAuthStatus() {
+export async function checkAuthStatus(timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${BASE_URL}/auth/status?_t=${Date.now()}`, {
       cache: 'no-store',
+      signal: controller.signal,
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
       },
     });
+    clearTimeout(timeoutId);
     if (!res.ok) return { authenticated: false };
     return await res.json();
   } catch (err) {
-    console.error('Session check failed:', err);
+    clearTimeout(timeoutId);
+    console.warn('Session check ended or timed out:', err.name === 'AbortError' ? 'Timeout' : err.message);
     return { authenticated: false, message: err.message };
   }
 }

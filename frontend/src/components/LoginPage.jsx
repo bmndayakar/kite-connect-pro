@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Lock, ArrowRight, ExternalLink, RefreshCw, Eye, EyeOff, AlertCircle, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Key, Lock, ArrowRight, ExternalLink, RefreshCw, Eye, EyeOff, AlertCircle, Sparkles, CheckCircle2, Clock } from 'lucide-react';
 import { fetchInitialCredentials, loginWithKite } from '../api';
 
-export default function LoginPage({ onLoginSuccess, isCheckingExistingSession }) {
+export default function LoginPage({ onLoginSuccess, isCheckingExistingSession, onSkipSessionCheck }) {
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [requestToken, setRequestToken] = useState('');
@@ -10,6 +10,19 @@ export default function LoginPage({ onLoginSuccess, isCheckingExistingSession })
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [prefilled, setPrefilled] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Live timer while checking session
+  useEffect(() => {
+    let interval;
+    if (isCheckingExistingSession) {
+      setElapsedSeconds(0);
+      interval = setInterval(() => {
+        setElapsedSeconds((s) => s + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isCheckingExistingSession]);
 
   // Load initial credentials from credentials.txt if available
   useEffect(() => {
@@ -68,11 +81,58 @@ export default function LoginPage({ onLoginSuccess, isCheckingExistingSession })
 
   if (isCheckingExistingSession) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-        <div className="spinner" style={{ width: '36px', height: '36px', borderTopColor: 'var(--accent-kite)' }}></div>
-        <p style={{ marginTop: '1.25rem', color: 'var(--text-muted)' }}>
-          Checking for active backend session...
-        </p>
+      <div
+        className="animate-fade-in"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '60vh',
+          textAlign: 'center',
+          padding: '2rem 1rem',
+        }}
+      >
+        <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '2.25rem 2rem' }}>
+          <div
+            className="spinner"
+            style={{
+              width: '40px',
+              height: '40px',
+              borderTopColor: 'var(--accent-kite)',
+              margin: '0 auto 1.25rem auto',
+            }}
+          ></div>
+
+          <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.4rem' }}>
+            Checking for active backend session...
+          </h3>
+
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: '1.5', margin: '0 0 1.25rem 0' }}>
+            {elapsedSeconds < 3
+              ? 'Verifying saved authentication token with the server...'
+              : `Connecting to backend... If inactive, Render free-tier takes ~30s to warm up. (Elapsed: ${elapsedSeconds}s)`}
+          </p>
+
+          <button
+            type="button"
+            onClick={onSkipSessionCheck}
+            className="btn btn-secondary"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding: '0.6rem 1.25rem',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              margin: '0 auto',
+            }}
+          >
+            <span>Skip Wait & Enter Credentials</span>
+            <ArrowRight size={15} />
+          </button>
+        </div>
       </div>
     );
   }
@@ -103,6 +163,13 @@ export default function LoginPage({ onLoginSuccess, isCheckingExistingSession })
             Enter your credentials to generate and securely persist your daily access token.
           </p>
         </div>
+
+        {elapsedSeconds >= 4 && (
+          <div className="alert alert-info" style={{ padding: '0.65rem 0.9rem', fontSize: '0.82rem', marginBottom: '1.25rem' }}>
+            <Clock size={16} />
+            <span>Backend is warming up on Render. You can fill out your credentials below to log in immediately.</span>
+          </div>
+        )}
 
         {prefilled && (
           <div className="alert alert-info" style={{ padding: '0.65rem 0.9rem', fontSize: '0.82rem', marginBottom: '1.25rem' }}>
