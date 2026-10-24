@@ -12,26 +12,101 @@ import {
   ArrowUpDown,
   Filter,
   BarChart2,
-  ExternalLink
+  ExternalLink,
+  Clock
 } from 'lucide-react';
 import { scanSignals } from '../api';
 
 export default function SignalsTab() {
-  const [shortSma, setShortSma] = useState(6);
-  const [longSma, setLongSma] = useState(30);
-  const [lookbackDays, setLookbackDays] = useState(100);
-  const [maxStocks, setMaxStocks] = useState(50);
+  const [shortSma, setShortSma] = useState(() => {
+    try {
+      const cached = localStorage.getItem('kite_signals_cache');
+      if (cached) return JSON.parse(cached).shortSma || 6;
+    } catch (e) {}
+    return 6;
+  });
+  const [longSma, setLongSma] = useState(() => {
+    try {
+      const cached = localStorage.getItem('kite_signals_cache');
+      if (cached) return JSON.parse(cached).longSma || 30;
+    } catch (e) {}
+    return 30;
+  });
+  const [lookbackDays, setLookbackDays] = useState(() => {
+    try {
+      const cached = localStorage.getItem('kite_signals_cache');
+      if (cached) return JSON.parse(cached).lookbackDays || 100;
+    } catch (e) {}
+    return 100;
+  });
+  const [maxStocks, setMaxStocks] = useState(() => {
+    try {
+      const cached = localStorage.getItem('kite_signals_cache');
+      if (cached) return JSON.parse(cached).maxStocks || 50;
+    } catch (e) {}
+    return 50;
+  });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [scanResult, setScanResult] = useState(null);
+
+  // Preserve signals data across tab switches and page refreshes
+  const [scanResult, setScanResult] = useState(() => {
+    try {
+      const cached = localStorage.getItem('kite_signals_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return parsed.data || null;
+      }
+    } catch (e) {
+      console.warn('Failed to parse cached signals:', e);
+    }
+    return null;
+  });
+
+  const [lastGeneratedAt, setLastGeneratedAt] = useState(() => {
+    try {
+      const cached = localStorage.getItem('kite_signals_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return parsed.timestamp || null;
+      }
+    } catch (e) {}
+    return null;
+  });
+
+  const [timeAgoText, setTimeAgoText] = useState('');
   const [filterType, setFilterType] = useState('ALL'); // ALL, Bullish, Bearish
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Run initial scan on mount
+  // Calculate dynamic relative time ("just now", "1 minute ago", "5 minutes ago")
+  const calculateTimeAgo = (timestamp) => {
+    if (!timestamp) return '';
+    const elapsedSeconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (elapsedSeconds < 10) return 'just now';
+    if (elapsedSeconds < 60) return `${elapsedSeconds} seconds ago`;
+    const minutes = Math.floor(elapsedSeconds / 60);
+    if (minutes === 1) return '1 minute ago';
+    if (minutes < 60) return `${minutes} minutes ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours === 1) return '1 hour ago';
+    if (hours < 24) return `${hours} hours ago`;
+    const days = Math.floor(hours / 24);
+    return days === 1 ? '1 day ago' : `${days} days ago`;
+  };
+
+  // Update the time-ago text every 10 seconds
   useEffect(() => {
-    handleRunScan();
-  }, []);
+    if (!lastGeneratedAt) {
+      setTimeAgoText('');
+      return;
+    }
+    setTimeAgoText(calculateTimeAgo(lastGeneratedAt));
+    const interval = setInterval(() => {
+      setTimeAgoText(calculateTimeAgo(lastGeneratedAt));
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [lastGeneratedAt]);
 
   const handleRunScan = async () => {
     setError(null);
@@ -48,7 +123,28 @@ export default function SignalsTab() {
         lookbackDays,
         maxStocks,
       });
+
+      const now = Date.now();
       setScanResult(data);
+      setLastGeneratedAt(now);
+      setTimeAgoText('just now');
+
+      // Persist in localStorage so it remains preserved until user clicks generate again
+      try {
+        localStorage.setItem(
+          'kite_signals_cache',
+          JSON.stringify({
+            data,
+            timestamp: now,
+            shortSma,
+            longSma,
+            lookbackDays,
+            maxStocks,
+          })
+        );
+      } catch (saveErr) {
+        console.warn('Could not cache signals to localStorage:', saveErr);
+      }
     } catch (err) {
       setError(err.message || 'Error occurred while scanning Nifty 100 stocks.');
     } finally {
@@ -199,26 +295,44 @@ export default function SignalsTab() {
             </select>
           </div>
 
-          {/* Generate Signals Button */}
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={handleRunScan}
-            disabled={loading}
-            style={{ height: '42px' }}
-          >
-            {loading ? (
-              <>
-                <div className="spinner"></div>
-                <span>Scanning Nifty 100...</span>
-              </>
-            ) : (
-              <>
-                <Play size={16} fill="white" />
-                <span>Generate Signals</span>
-              </>
+          {/* Generate Signals Button & Recency Indicator */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleRunScan}
+              disabled={loading}
+              style={{ height: '42px', width: '100%' }}
+            >
+              {loading ? (
+                <>
+                  <div className="spinner"></div>
+                  <span>Scanning Nifty 100...</span>
+                </>
+              ) : (
+                <>
+                  <Play size={16} fill="white" />
+                  <span>Generate Signals</span>
+                </>
+              )}
+            </button>
+            {lastGeneratedAt && (
+              <div
+                style={{
+                  fontSize: '0.74rem',
+                  color: 'var(--text-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <Clock size={12} color="var(--accent-kite)" />
+                <span>Signals generated <strong>{timeAgoText}</strong></span>
+              </div>
             )}
-          </button>
+          </div>
         </div>
 
         {error && (
@@ -232,6 +346,37 @@ export default function SignalsTab() {
       {/* Summary KPI Badges & Table Toolbar */}
       {scanResult && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {/* Real-time Preserved Indicator Bar */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '0.75rem',
+              padding: '0.6rem 1rem',
+              backgroundColor: '#ffffff',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-subtle)',
+              boxShadow: 'var(--shadow-card)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <span className="badge badge-kite" style={{ padding: '0.3rem 0.75rem' }}>
+                <Clock size={13} style={{ marginRight: '4px' }} />
+                <span>Signals generated {timeAgoText}</span>
+              </span>
+              {lastGeneratedAt && (
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>
+                  (at {new Date(lastGeneratedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                </span>
+              )}
+            </div>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Data preserved • Click <strong>Generate Signals</strong> above to re-scan
+            </span>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '1rem' }}>
             
             {/* Total Scanned */}
@@ -360,8 +505,38 @@ export default function SignalsTab() {
         </div>
       )}
 
+      {/* Ready to Scan State (Before user clicks Generate) */}
+      {!scanResult && !loading && (
+        <div className="card" style={{ padding: '3.5rem 2rem', textAlign: 'center', background: '#ffffff' }}>
+          <div
+            style={{
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              background: 'var(--accent-kite-subtle)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--accent-kite)',
+              marginBottom: '1rem',
+            }}
+          >
+            <Play size={24} fill="var(--accent-kite)" />
+          </div>
+          <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Ready to Scan Nifty 100</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', maxWidth: '480px', margin: '0.5rem auto 1.5rem', lineHeight: 1.5 }}>
+            Adjust your Short and Long SMA periods above (or pick a preset), then click <strong>Generate Signals</strong> to calculate moving average crossovers.
+          </p>
+          <button className="btn btn-primary" onClick={handleRunScan} style={{ padding: '0.75rem 1.75rem' }}>
+            <Play size={16} fill="white" />
+            <span>Generate Signals</span>
+          </button>
+        </div>
+      )}
+
       {/* Signals Table */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      {(scanResult || loading) && (
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
             <thead>
@@ -536,6 +711,7 @@ export default function SignalsTab() {
           </table>
         </div>
       </div>
+      )}
 
       {/* Beginner Guide Footer */}
       <div className="card" style={{ padding: '1.25rem 1.5rem', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
