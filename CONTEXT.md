@@ -145,6 +145,11 @@ Located in [backend/scanner_service.py](file:///c:/Users/dayam/Documents/dabbulu
    - **Bearish**: `curr_short < curr_long` AND `prev_short >= prev_long`.
 6. **Recency Ranking**:
    - Sorts results by `days_ago` ascending (`crossover_date` descending) so today's/yesterday's signals appear at the very top as `Rank 1, 2, 3...`.
+7. **Signal Persistence & Dynamic Recency Timer**:
+   - **On-Demand**: Does not auto-scan on initial render; waits for the user to click "Generate Signals".
+   - **Persistent Storage**: Saves results and timestamp to `localStorage` (`kite_signals_cache`), preserving the table across tab switches and browser reloads until re-scanned.
+   - **Dynamic Timer**: Displays real-time recency text (`Signals generated 1 minute ago`, `just now`, etc.) updating every 10 seconds.
+   - **Direct Charts**: Clickable tickers that open official Kite TradingView charts in a new tab.
 
 ---
 
