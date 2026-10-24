@@ -11,7 +11,8 @@ import {
   HelpCircle,
   ArrowUpDown,
   Filter,
-  BarChart2
+  BarChart2,
+  ExternalLink
 } from 'lucide-react';
 import { scanSignals } from '../api';
 
@@ -75,6 +76,14 @@ export default function SignalsTab() {
     if (days === 0) return 'Today';
     if (days === 1) return 'Yesterday';
     return `${days} days ago`;
+  };
+
+  const getKiteChartUrl = (ticker, token) => {
+    if (token && token !== 'N/A') {
+      // Official Zerodha Kite TradingView popup chart URL
+      return `https://kite.zerodha.com/chart/ext/tvc/NSE/${ticker}/${token}`;
+    }
+    return `https://kite.zerodha.com/chart/ext/ciq/NSE/${ticker}`;
   };
 
   return (
@@ -358,7 +367,7 @@ export default function SignalsTab() {
             <thead>
               <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
                 <th style={{ padding: '0.85rem 1rem', width: '70px', fontWeight: 600 }}>Rank</th>
-                <th style={{ padding: '0.85rem 1rem', fontWeight: 600 }}>Ticker</th>
+                <th style={{ padding: '0.85rem 1rem', fontWeight: 600 }}>Ticker (Chart ↗)</th>
                 <th style={{ padding: '0.85rem 1rem', fontWeight: 600 }}>Company</th>
                 <th style={{ padding: '0.85rem 1rem', fontWeight: 600 }}>Crossover Type</th>
                 <th style={{ padding: '0.85rem 1rem', fontWeight: 600 }}>Crossover Date</th>
@@ -414,15 +423,41 @@ export default function SignalsTab() {
                       {/* Ticker */}
                       <td style={{ padding: '0.85rem 1rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-main)', fontSize: '0.92rem' }}>
-                            {item.ticker}
-                          </span>
+                          <a
+                            href={getKiteChartUrl(item.ticker, item.instrument_token)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={`Open ${item.ticker} live chart on Zerodha Kite`}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              fontFamily: 'var(--font-mono)',
+                              fontWeight: 700,
+                              color: 'var(--text-main)',
+                              fontSize: '0.92rem',
+                              textDecoration: 'none',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.color = 'var(--accent-kite)';
+                              e.currentTarget.style.textDecoration = 'underline';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.color = 'var(--text-main)';
+                              e.currentTarget.style.textDecoration = 'none';
+                            }}
+                          >
+                            <span>{item.ticker}</span>
+                            <ExternalLink size={13} style={{ opacity: 0.65 }} />
+                          </a>
                           <span
                             title={`Kite Instrument Token: ${item.instrument_token}`}
                             style={{
                               fontSize: '0.68rem',
                               color: 'var(--text-dim)',
-                              backgroundColor: 'var(--bg-secondary)',
+                              backgroundColor: '#f8fafc',
                               padding: '2px 5px',
                               borderRadius: '4px',
                               border: '1px solid var(--border-subtle)',
@@ -509,6 +544,7 @@ export default function SignalsTab() {
           <span>How SMA Crossover Ranking Works</span>
         </div>
         <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+          • <strong>Live Zerodha Kite Charts</strong>: Click on any stock <strong>Ticker</strong> to open its full-screen live TradingView chart directly on Zerodha Kite.<br />
           • <strong>Bullish Crossover</strong>: Occurs when the faster Short SMA (default 6) crosses above the slower Long SMA (default 30), indicating strong upward momentum.<br />
           • <strong>Bearish Crossover</strong>: Occurs when the Short SMA falls below the Long SMA, signaling weakening price or potential downtrend.<br />
           • <strong>Ranking</strong>: Stocks are ordered strictly by the <strong>most recent crossover date</strong> first, ensuring actionable and timely trade setups appear right at the top.

@@ -219,3 +219,4 @@ If extending this application further:
 2. **Holdings & Positions Tab**: Render live portfolio P&L using `kite.holdings()` and `kite.positions()`.
 3. **WebSocket Live Ticker**: Connect to Kite ticker (`KiteTicker`) to stream real-time tick prices for the top ranked crossover stocks.
 4. **Automated Cron / Webhook Alerts**: Send Telegram or Discord notifications whenever an SMA crossover is triggered during market hours (9:15 AM - 3:30 PM IST).
+
