@@ -74,11 +74,13 @@ dabbulu-bokka-pani/
 │   ├── kite_service.py           # KiteSessionManager (session creation, profile, cache)
 │   ├── scanner_service.py        # NiftyScannerService (CSV parsing, SMA 6/30, crossover detection)
 │   ├── scanner_data_service.py   # ScannerDataService (Nifty 100 daily candles & OHLC snapshots)
+│   ├── gtt_service.py            # GttService (Simulated GTT state check, atomic duplicate prevention, dummy store)
 │   ├── requirements.txt          # Python dependencies
 │   ├── session.json              # Active backend session (auto-generated, do not commit)
 │   └── data/
 │       ├── ind_nifty100list.csv  # 100 official Nifty constituents from NSE/NiftyIndices
-│       └── nse_instruments.json  # 10,000+ mapped Kite NSE instrument tokens
+│       ├── nse_instruments.json  # 10,000+ mapped Kite NSE instrument tokens
+│       └── dummy_gtts.json       # Persistent local store for simulated DUMMY- GTT records
 │
 └── frontend/
     ├── package.json              # React dependencies (lucide-react, vite-plugin-singlefile)
@@ -87,7 +89,7 @@ dabbulu-bokka-pani/
     ├── public/
     │   └── .htaccess             # Apache rewrite rules for SPA hosting on Hostinger
     ├── dist/
-    │   ├── index.html            # ~300KB self-contained production bundle (UPLOAD THIS TO HOSTINGER)
+    │   ├── index.html            # ~330KB self-contained production bundle (UPLOAD THIS TO HOSTINGER)
     │   └── .htaccess             # Apache rewrite file
     └── src/
         ├── App.jsx               # Root state machine (auth recovery on boot)
@@ -96,8 +98,9 @@ dabbulu-bokka-pani/
         └── components/
             ├── Navbar.jsx        # Navigation bar, live session status, logout button
             ├── LoginPage.jsx     # Form with prefill & "Get Request Token" helper
-            ├── Dashboard.jsx     # Tab controller (User, Algo Signals, Signals, Overview, Session)
-            ├── AlgoSignalsTab.jsx# High-volume breakout and retest setups (Dark UI, live WebSocket LTP)
+            ├── Dashboard.jsx     # Tab controller (User, Algo Signals, GTT Placement, Signals, Overview, Session)
+            ├── AlgoSignalsTab.jsx# High-volume breakout and retest setups (Dark UI, Run Live button, shared live LTP)
+            ├── GttPlacementTab.jsx# Kite GTT Placement (Read-only status table, Qty 1, Breakout Low, Stoploss 5%)
             ├── UserTab.jsx       # Displays User Name, Client ID, Products, Exchanges
             ├── SignalsTab.jsx    # Nifty 100 SMA Crossover Scanner UI & ranked table
             ├── OverviewTab.jsx   # Welcome cards, shortcuts, feature summaries

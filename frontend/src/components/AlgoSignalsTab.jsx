@@ -10,24 +10,31 @@ import {
   ArrowUpRight,
   TrendingUp,
   Layers,
-  Database
+  Database,
+  Play
 } from 'lucide-react';
-import { fetchScannerData, fetchOhlcSnapshot, getWebSocketUrl } from '../api';
+import { fetchScannerData, fetchOhlcSnapshot, getWebSocketUrl, fetchGttState, placeLiveGtt } from '../api';
 
-export default function AlgoSignalsTab() {
-  const [loading, setLoading] = useState(true);
+export default function AlgoSignalsTab({
+  results = [],
+  setResults,
+  scannedStocksCount = 0,
+  setScannedStocksCount,
+  livePrices = {},
+  setLivePrices,
+  wsStatus = 'Disconnected',
+  tickCount = 0,
+  onSignalsUpdated,
+  onGttResultsUpdated,
+  gttResults = {}
+}) {
+  const [loading, setLoading] = useState(results.length === 0);
   const [refreshing, setRefreshing] = useState(false);
+  const [isRunningLive, setIsRunningLive] = useState(false);
   const [error, setError] = useState(null);
-  const [scannedStocksCount, setScannedStocksCount] = useState(0);
-  const [results, setResults] = useState([]);
+  const [runLiveMessage, setRunLiveMessage] = useState(null);
+  const [runLiveError, setRunLiveError] = useState(null);
   const [selectedSymbol, setSelectedSymbol] = useState(null);
-
-  // Live prices dictionary: { [instrument_token]: price }
-  const [livePrices, setLivePrices] = useState({});
-  const [wsStatus, setWsStatus] = useState('Disconnected');
-  const [tickCount, setTickCount] = useState(0);
-
-  const wsRef = useRef(null);
 
   // Normalization logic
   const normalizeCandles = (rawCandles) => {
@@ -189,8 +196,9 @@ export default function AlgoSignalsTab() {
       const stocksList = resp.stocks || [];
       const { scanned, hits } = runBreakoutScanner(stocksList);
 
-      setScannedStocksCount(scanned);
-      setResults(hits);
+      if (setScannedStocksCount) setScannedStocksCount(scanned);
+      if (setResults) setResults(hits);
+      if (onSignalsUpdated) onSignalsUpdated(hits);
 
       if (hits.length > 0 && !selectedSymbol) {
         setSelectedSymbol(hits[0].symbol);
@@ -203,14 +211,16 @@ export default function AlgoSignalsTab() {
           initPrices[h.instrumentToken] = h.currentPrice;
         }
       });
-      setLivePrices((prev) => ({ ...initPrices, ...prev }));
+      if (setLivePrices) {
+        setLivePrices((prev) => ({ ...initPrices, ...prev }));
+      }
 
       // Fetch snapshot LTP fallback for returned tokens
       const tokens = hits.map((h) => h.instrumentToken).filter(Boolean);
       if (tokens.length > 0) {
         fetchOhlcSnapshot(tokens)
           .then((snapshot) => {
-            if (snapshot && typeof snapshot === 'object') {
+            if (snapshot && typeof snapshot === 'object' && setLivePrices) {
               setLivePrices((prev) => {
                 const updated = { ...prev };
                 for (const [tKey, snap] of Object.entries(snapshot)) {
@@ -236,73 +246,158 @@ export default function AlgoSignalsTab() {
   };
 
   useEffect(() => {
-    loadData(false);
+    if (results.length === 0) {
+      loadData(false);
+    } else {
+      setLoading(false);
+      if (!selectedSymbol && results.length > 0) {
+        setSelectedSymbol(results[0].symbol);
+      }
+    }
   }, []);
 
-  // WebSocket Subscription for Live LTP
-  useEffect(() => {
-    if (!results || results.length === 0) {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      setWsStatus('Idle');
-      return;
-    }
-
-    const tokens = results.map((r) => r.instrumentToken).filter(Boolean);
-    if (tokens.length === 0) return;
-
-    const wsUrl = getWebSocketUrl(tokens, 'full');
-    setWsStatus('Connecting...');
-
-    let ws = null;
+  // Run Live Workflow
+  const handleRunLive = async () => {
     try {
-      ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      // 1. Set running state
+      setIsRunningLive(true);
+      setRunLiveError(null);
+      setRunLiveMessage(null);
 
-      ws.onopen = () => {
-        setWsStatus('Live Streaming');
-      };
+      // 2. Clear previous GTT placement errors
+      setError(null);
 
-      ws.onmessage = (event) => {
-        try {
-          const raw = JSON.parse(event.data);
-          const ticks = Array.isArray(raw) ? raw : [raw];
-          setLivePrices((prev) => {
-            const next = { ...prev };
-            for (const t of ticks) {
-              if (t && t.instrument_token && t.last_price != null) {
-                next[t.instrument_token] = t.last_price;
-              }
-            }
-            return next;
-          });
-          setTickCount((prev) => prev + ticks.length);
-        } catch (e) {
-          console.warn('[AlgoSignals] WS tick parse error:', e);
-        }
-      };
+      // 3. Force-refresh scanner data
+      const resp = await fetchScannerData(true);
+      const stocksList = resp.stocks || [];
 
-      ws.onerror = (e) => {
-        console.warn('[AlgoSignals] WebSocket error:', e);
-        setWsStatus('Offline / Reconnecting');
-      };
+      // 4. Rerun existing Algo Signals scanner using exact existing logic
+      const { scanned, hits } = runBreakoutScanner(stocksList);
+      if (setScannedStocksCount) setScannedStocksCount(scanned);
+      if (setResults) setResults(hits);
+      if (onSignalsUpdated) onSignalsUpdated(hits);
 
-      ws.onclose = () => {
-        setWsStatus('Closed');
-      };
-    } catch (e) {
-      console.error('[AlgoSignals] Failed to initialize WebSocket:', e);
-      setWsStatus('Failed');
-    }
-
-    return () => {
-      if (ws) {
-        ws.close();
+      if (hits.length === 0) {
+        setRunLiveMessage('No breakout setups matched current parameters to create GTT candidates.');
+        return;
       }
-    };
-  }, [results]);
+
+      // 5. Load an OHLC snapshot for the fresh signal symbols
+      const tokens = hits.map((h) => h.instrumentToken).filter(Boolean);
+      let snapshot = {};
+      if (tokens.length > 0) {
+        try {
+          snapshot = await fetchOhlcSnapshot(tokens);
+        } catch (e) {
+          console.warn('[AlgoSignals] OHLC snapshot error during Run Live:', e);
+        }
+      }
+
+      // 6. Merge snapshot prices with websocket ticks
+      const mergedPrices = { ...livePrices };
+      hits.forEach((h) => {
+        if (h.instrumentToken && !mergedPrices[h.instrumentToken]) {
+          mergedPrices[h.instrumentToken] = h.currentPrice;
+        }
+      });
+      if (snapshot && typeof snapshot === 'object') {
+        for (const [tKey, snap] of Object.entries(snapshot)) {
+          if (snap && snap.last_price != null) {
+            mergedPrices[Number(tKey)] = snap.last_price;
+          }
+        }
+      }
+      if (setLivePrices) {
+        setLivePrices(mergedPrices);
+      }
+
+      // 7. Build GTT candidates from fresh Algo Signals
+      // Buy price: breakout candle low (breakoutLow)
+      // Stoploss: 5% below buy price (buy_price * 0.95)
+      const candidateOrders = hits.map((hit) => {
+        const ltp = mergedPrices[hit.instrumentToken] ?? hit.currentPrice;
+        const buyPrice = hit.breakoutLow;
+        const stoploss = buyPrice != null ? Number((buyPrice * 0.95).toFixed(2)) : null;
+
+        return {
+          symbol: hit.symbol,
+          quantity: 1,
+          buy_price: buyPrice,
+          stoploss: stoploss,
+          last_price: ltp,
+        };
+      });
+
+      // 8. Call /api/algo-orders/gtt-state
+      const stateResults = await fetchGttState(candidateOrders);
+      const stateMap = {};
+      stateResults.forEach((st) => {
+        if (st && st.symbol) {
+          stateMap[st.symbol] = st;
+        }
+      });
+
+      // 9. Select only rows where buy price, stoploss, and live or snapshot LTP are available, and backend buy_status is ready
+      const readyRows = stateResults.filter(
+        (st) =>
+          st.buy_price != null &&
+          st.buy_price > 0 &&
+          st.stoploss != null &&
+          st.stoploss > 0 &&
+          st.last_price != null &&
+          st.last_price > 0 &&
+          st.buy_status === 'ready'
+      );
+
+      // 10. Call /api/algo-orders/live-gtt only for those ready rows (creates dummy records only)
+      let liveResults = [];
+      if (readyRows.length > 0) {
+        const ordersToPlace = readyRows.map((r) => ({
+          symbol: r.symbol,
+          quantity: r.quantity || 1,
+          buy_price: r.buy_price,
+          stoploss: r.stoploss,
+          last_price: r.last_price,
+        }));
+        liveResults = await placeLiveGtt(ordersToPlace, true);
+      }
+
+      const liveMap = {};
+      liveResults.forEach((lr) => {
+        if (lr && lr.symbol) {
+          liveMap[lr.symbol] = lr;
+        }
+      });
+
+      // 11. Update GTT Placement with returned placement results
+      // 12. For skipped rows, show the backend state result instead of creating a dummy record
+      const finalGttMap = {};
+      candidateOrders.forEach((cand) => {
+        const sym = cand.symbol;
+        if (liveMap[sym]) {
+          finalGttMap[sym] = liveMap[sym];
+        } else if (stateMap[sym]) {
+          finalGttMap[sym] = stateMap[sym];
+        }
+      });
+
+      if (onGttResultsUpdated) {
+        onGttResultsUpdated(finalGttMap);
+      }
+
+      const createdCount = liveResults.filter((r) => r.buy_status === 'success').length;
+      const skippedCount = candidateOrders.length - createdCount;
+      setRunLiveMessage(
+        `Run Live complete: ${createdCount} dummy GTT created, ${skippedCount} skipped. View GTT Placement tab.`
+      );
+    } catch (err) {
+      console.error('[AlgoSignals] Run Live error:', err);
+      setRunLiveError(err.message || 'Run Live execution failed.');
+    } finally {
+      // 13. Stop running state
+      setIsRunningLive(false);
+    }
+  };
 
   const selectedItem = results.find((r) => r.symbol === selectedSymbol) || results[0];
 
@@ -382,9 +477,10 @@ export default function AlgoSignalsTab() {
 
         {/* Action Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {/* Refresh Scanner Button */}
           <button
             onClick={() => loadData(true)}
-            disabled={loading || refreshing}
+            disabled={loading || refreshing || isRunningLive}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -396,7 +492,7 @@ export default function AlgoSignalsTab() {
               borderRadius: '8px',
               fontSize: '0.825rem',
               fontWeight: 600,
-              cursor: loading || refreshing ? 'not-allowed' : 'pointer',
+              cursor: loading || refreshing || isRunningLive ? 'not-allowed' : 'pointer',
               transition: 'all 0.15s ease',
             }}
             title="Force refresh candles and rescan"
@@ -404,8 +500,93 @@ export default function AlgoSignalsTab() {
             <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
             <span>{refreshing ? 'Scanning...' : 'Refresh Scanner'}</span>
           </button>
+
+          {/* Run Live Button */}
+          <button
+            onClick={handleRunLive}
+            disabled={loading || refreshing || isRunningLive}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              backgroundColor: isRunningLive ? '#334155' : 'rgba(245, 158, 11, 0.2)',
+              color: isRunningLive ? '#94a3b8' : '#fbbf24',
+              border: '1px solid rgba(245, 158, 11, 0.4)',
+              padding: '0.55rem 1.15rem',
+              borderRadius: '8px',
+              fontSize: '0.825rem',
+              fontWeight: 700,
+              cursor: loading || refreshing || isRunningLive ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+              boxShadow: isRunningLive ? 'none' : '0 0 12px rgba(245, 158, 11, 0.25)',
+            }}
+            title="Rerun scanner and simulate dummy GTT order placement"
+          >
+            <Play size={14} className={isRunningLive ? 'animate-pulse' : ''} fill={isRunningLive ? 'none' : '#fbbf24'} />
+            <span>{isRunningLive ? 'Running...' : 'Run Live'}</span>
+          </button>
         </div>
       </div>
+
+      {/* Run Live Feedback Banner */}
+      {runLiveMessage && (
+        <div
+          style={{
+            backgroundColor: 'rgba(34, 197, 94, 0.15)',
+            border: '1px solid rgba(34, 197, 94, 0.3)',
+            borderRadius: '8px',
+            padding: '0.85rem 1.15rem',
+            marginBottom: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.75rem',
+            color: '#86efac',
+            fontSize: '0.85rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <CheckCircle2 size={18} style={{ flexShrink: 0 }} color="#22c55e" />
+            <span>{runLiveMessage}</span>
+          </div>
+          <button
+            onClick={() => setRunLiveMessage(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#86efac',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              padding: '0 4px',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {runLiveError && (
+        <div
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: '8px',
+            padding: '0.85rem 1.15rem',
+            marginBottom: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            color: '#fca5a5',
+            fontSize: '0.85rem',
+          }}
+        >
+          <AlertTriangle size={18} style={{ flexShrink: 0 }} color="#ef4444" />
+          <div>
+            <strong style={{ color: '#ef4444' }}>Run Live Error: </strong>
+            {runLiveError}
+          </div>
+        </div>
+      )}
 
       {/* Compact Summary Row */}
       <div

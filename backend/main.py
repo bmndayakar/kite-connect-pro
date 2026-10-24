@@ -7,6 +7,7 @@ import random
 from kite_service import kite_manager
 from scanner_service import scanner_service
 from scanner_data_service import scanner_data_service
+from gtt_service import gtt_service
 
 app = FastAPI(
     title="Kite Connect Pro Hub",
@@ -242,6 +243,72 @@ async def websocket_ticks(websocket: WebSocket, tokens: str = "", mode: str = "f
         pass
     except Exception:
         pass
+
+
+class GttCandidateOrder(BaseModel):
+    symbol: str
+    quantity: int = Field(default=1, description="Order quantity")
+    buy_price: Optional[float] = Field(default=None, description="Buy price (breakout candle low)")
+    stoploss: Optional[float] = Field(default=None, description="Stoploss (5% below buy)")
+    last_price: Optional[float] = Field(default=None, description="Last traded price")
+
+class GttStateRequest(BaseModel):
+    orders: List[GttCandidateOrder]
+
+class LiveGttRequest(BaseModel):
+    confirm_live: bool = Field(..., description="Must be true to authorize dummy simulation only")
+    orders: List[GttCandidateOrder]
+
+
+@app.post("/api/algo-orders/gtt-state")
+def get_algo_orders_gtt_state(payload: GttStateRequest):
+    """
+    Read-only GTT state check.
+    Evaluates GTT candidate orders against Kite account state and local dummy records.
+    Never submits, modifies, or cancels any real order or GTT.
+    """
+    try:
+        orders_dict = [o.model_dump() for o in payload.orders]
+        results = gtt_service.get_gtt_states(orders_dict, kite_client=kite_manager.kite)
+        return results
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check GTT state: {str(e)}"
+        )
+
+
+@app.post("/api/algo-orders/live-gtt")
+def place_algo_orders_live_gtt(payload: LiveGttRequest):
+    """
+    Simulated GTT placement endpoint.
+    Creates backend dummy GTT records with prefix DUMMY- in persistent storage.
+    NEVER submits real orders to Kite or calls kite.place_gtt() / kite.place_order().
+    """
+    if not payload.confirm_live:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="confirm_live must be explicitly true to authorize dummy simulation."
+        )
+
+    try:
+        orders_dict = [o.model_dump() for o in payload.orders]
+        results = gtt_service.place_dummy_live_gtts(
+            orders_dict,
+            confirm_live=payload.confirm_live,
+            kite_client=kite_manager.kite
+        )
+        return results
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(ve)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unable to create dummy GTT record: {str(e)}"
+        )
 
 
 if __name__ == "__main__":

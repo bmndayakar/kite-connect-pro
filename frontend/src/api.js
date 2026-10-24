@@ -134,4 +134,38 @@ export function getWebSocketUrl(tokens = [], mode = 'full') {
   return `${rootWs}/ws/ticks?tokens=${encodeURIComponent(tokenStr)}&mode=${encodeURIComponent(mode)}`;
 }
 
+export async function fetchGttState(orders = []) {
+  const res = await fetch(`${BASE_URL}/algo-orders/gtt-state`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ orders }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || 'Failed to check GTT state.');
+  }
+  return Array.isArray(data) ? data : data.results || [];
+}
+
+export async function placeLiveGtt(orders = [], confirmLive = true) {
+  const res = await fetch(`${BASE_URL}/algo-orders/live-gtt`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      confirm_live: Boolean(confirmLive),
+      orders,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || 'Failed to place dummy live GTTs.');
+  }
+  return Array.isArray(data) ? data : data.results || [];
+}
+
+
 
