@@ -12,6 +12,22 @@ export default function Dashboard({ user, onLogout, isLoggingOut }) {
   // Default to the required 'user' tab
   const [activeTab, setActiveTab] = useState('user');
 
+  // Trading mode: 'simulation' (Paper / Dummy) vs 'live' (Real Kite Broker GTTs)
+  const [tradingMode, setTradingMode] = useState(() => {
+    try {
+      return localStorage.getItem('kite_trading_mode') || 'simulation';
+    } catch (e) {
+      return 'simulation';
+    }
+  });
+
+  const handleSetTradingMode = (mode) => {
+    setTradingMode(mode);
+    try {
+      localStorage.setItem('kite_trading_mode', mode);
+    } catch (e) {}
+  };
+
   // Shared state between Algo Signals and GTT Placement
   const [algoResults, setAlgoResults] = useState([]);
   const [scannedStocksCount, setScannedStocksCount] = useState(0);
@@ -153,6 +169,8 @@ export default function Dashboard({ user, onLogout, isLoggingOut }) {
             onSignalsUpdated={(hits) => setAlgoResults(hits)}
             onGttResultsUpdated={(map) => setGttResults(map)}
             gttResults={gttResults}
+            tradingMode={tradingMode}
+            setTradingMode={handleSetTradingMode}
           />
         )}
         {activeTab === 'gtt_placement' && (
@@ -162,6 +180,8 @@ export default function Dashboard({ user, onLogout, isLoggingOut }) {
             livePrices={livePrices}
             wsStatus={wsStatus}
             tickCount={tickCount}
+            tradingMode={tradingMode}
+            setTradingMode={handleSetTradingMode}
           />
         )}
         {activeTab === 'signals' && <SignalsTab />}

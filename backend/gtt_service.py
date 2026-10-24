@@ -145,6 +145,7 @@ class GttService:
             "buy_trigger_id": None,
             "stoploss_status": "planned_after_buy",
             "stoploss_trigger_id": None,
+            "is_real": False,
             "message": ""
         }
 
@@ -220,9 +221,10 @@ class GttService:
                             gid = str(g.get("id"))
                             res["active_buy_trigger_id"] = gid
                             res["buy_trigger_id"] = gid
+                            res["is_real"] = True
                             res["account_state"] = "already_active"
                             res["buy_status"] = "already_active"
-                            res["message"] = "Skipped: buy GTT already active."
+                            res["message"] = "Skipped: real buy GTT already active on broker."
                             return res
                         elif g_ord.get("transaction_type") == "SELL":
                             res["active_stoploss_trigger_id"] = str(g.get("id"))
@@ -231,10 +233,12 @@ class GttService:
         for d in dummy_records:
             if d.get("symbol") == sym and d.get("status") == "active":
                 did = d.get("trigger_id", "")
+                is_real_rec = d.get("is_real", False)
                 res["buy_trigger_id"] = did
+                res["is_real"] = is_real_rec
                 res["account_state"] = "already_active"
                 res["buy_status"] = "already_active"
-                res["message"] = "Skipped: dummy buy GTT already active."
+                res["message"] = "Skipped: real buy GTT already active." if is_real_rec else "Skipped: dummy buy GTT already active."
                 return res
 
         # 7. Check last price availability
@@ -265,19 +269,25 @@ class GttService:
                 results.append(st)
             return results
 
-    def place_dummy_live_gtts(
+    def execute_gtts(
         self,
         orders: List[Dict[str, Any]],
         confirm_live: bool,
+        mode: str = "simulation",
         kite_client=None
     ) -> List[Dict[str, Any]]:
         """
-        Simulated GTT placement endpoint for POST /api/algo-orders/live-gtt.
-        Creates dummy local GTT records ONLY with DUMMY- prefix.
-        Never calls kite.place_gtt(), kite.place_order(), or any real broker endpoint.
+        Executes GTT placement.
+        - If mode == "simulation" (default): Creates simulated dummy records (DUMMY- prefix). Zero broker calls.
+        - If mode == "live": Places REAL Buy GTT orders directly on Zerodha Kite via kite.place_gtt().
         """
         if not confirm_live:
-            raise ValueError("confirm_live must be explicitly true to authorize dummy simulation.")
+            raise ValueError("confirm_live must be explicitly true to authorize order placement.")
+
+        is_live_mode = (mode == "live")
+
+        if is_live_mode and not kite_client:
+            raise ValueError("Active Zerodha Kite session is required for Live Trading mode. Please log in first.")
 
         with self.lock:
             dummy_records = self._load_dummy_gtts()
@@ -290,34 +300,88 @@ class GttService:
                 # Re-verify state under lock
                 state = self.check_candidate_state(ord_data, kite_state, dummy_records)
 
-                # If ready, create dummy record atomically
+                # If ready, proceed based on mode
                 if state["buy_status"] == "ready":
                     sym = state["symbol"]
-                    self.counter += 1
-                    trigger_id = f"DUMMY-{sym}-{self.counter:06d}"
+                    qty = state["quantity"]
+                    buy_price = state["buy_price"]
+                    last_price = state.get("last_price") or buy_price
 
-                    new_record = {
-                        "trigger_id": trigger_id,
-                        "symbol": sym,
-                        "quantity": state["quantity"],
-                        "trigger_price": state["buy_price"],
-                        "order_price": state["buy_price"],
-                        "product": "CNC",
-                        "exchange": "NSE",
-                        "transaction_type": "BUY",
-                        "order_type": "LIMIT",
-                        "status": "active",
-                        "created_at": datetime.now().isoformat()
-                    }
-                    dummy_records.append(new_record)
-                    records_modified = True
+                    if is_live_mode:
+                        # REAL BROKER ORDER PLACEMENT VIA KITE CONNECT
+                        try:
+                            gtt_res = kite_client.place_gtt(
+                                trigger_type=kite_client.GTT_TYPE_SINGLE,
+                                tradingsymbol=sym,
+                                exchange="NSE",
+                                trigger_values=[buy_price],
+                                last_price=last_price,
+                                orders=[{
+                                    "transaction_type": kite_client.TRANSACTION_TYPE_BUY,
+                                    "quantity": qty,
+                                    "order_type": kite_client.ORDER_TYPE_LIMIT,
+                                    "product": kite_client.PRODUCT_CNC,
+                                    "price": buy_price
+                                }]
+                            )
+                            real_trigger_id = str(gtt_res.get("trigger_id", ""))
+                            state["buy_status"] = "success"
+                            state["buy_trigger_id"] = real_trigger_id
+                            state["stoploss_status"] = "planned_after_buy"
+                            state["stoploss_trigger_id"] = None
+                            state["is_real"] = True
+                            state["message"] = f"Real buy GTT placed on Zerodha Kite (ID: {real_trigger_id}). Stoploss planned after buy execution."
+                            state["account_state"] = "clear"
 
-                    state["buy_status"] = "success"
-                    state["buy_trigger_id"] = trigger_id
-                    state["stoploss_status"] = "planned_after_buy"
-                    state["stoploss_trigger_id"] = None
-                    state["message"] = "Dummy buy GTT created. No order sent to Kite. Stoploss planned after buy execution."
-                    state["account_state"] = "clear"
+                            new_record = {
+                                "trigger_id": real_trigger_id,
+                                "symbol": sym,
+                                "quantity": qty,
+                                "trigger_price": buy_price,
+                                "order_price": buy_price,
+                                "product": "CNC",
+                                "exchange": "NSE",
+                                "transaction_type": "BUY",
+                                "order_type": "LIMIT",
+                                "status": "active",
+                                "is_real": True,
+                                "created_at": datetime.now().isoformat()
+                            }
+                            dummy_records.append(new_record)
+                            records_modified = True
+                        except Exception as e:
+                            state["buy_status"] = "failed"
+                            state["is_real"] = True
+                            state["message"] = f"Failed to place real GTT on Kite: {str(e)}"
+                    else:
+                        # SIMULATION (DUMMY) MODE
+                        self.counter += 1
+                        trigger_id = f"DUMMY-{sym}-{self.counter:06d}"
+
+                        new_record = {
+                            "trigger_id": trigger_id,
+                            "symbol": sym,
+                            "quantity": qty,
+                            "trigger_price": buy_price,
+                            "order_price": buy_price,
+                            "product": "CNC",
+                            "exchange": "NSE",
+                            "transaction_type": "BUY",
+                            "order_type": "LIMIT",
+                            "status": "active",
+                            "is_real": False,
+                            "created_at": datetime.now().isoformat()
+                        }
+                        dummy_records.append(new_record)
+                        records_modified = True
+
+                        state["buy_status"] = "success"
+                        state["buy_trigger_id"] = trigger_id
+                        state["stoploss_status"] = "planned_after_buy"
+                        state["stoploss_trigger_id"] = None
+                        state["is_real"] = False
+                        state["message"] = "Dummy buy GTT created. No order sent to Kite. Stoploss planned after buy execution."
+                        state["account_state"] = "clear"
 
                 results.append(state)
 
@@ -325,6 +389,14 @@ class GttService:
                 self._save_dummy_gtts(dummy_records)
 
             return results
+
+    def place_dummy_live_gtts(
+        self,
+        orders: List[Dict[str, Any]],
+        confirm_live: bool,
+        kite_client=None
+    ) -> List[Dict[str, Any]]:
+        return self.execute_gtts(orders, confirm_live=confirm_live, mode="simulation", kite_client=kite_client)
 
 
 gtt_service = GttService()

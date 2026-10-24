@@ -256,7 +256,8 @@ class GttStateRequest(BaseModel):
     orders: List[GttCandidateOrder]
 
 class LiveGttRequest(BaseModel):
-    confirm_live: bool = Field(..., description="Must be true to authorize dummy simulation only")
+    confirm_live: bool = Field(..., description="Must be true to authorize order placement")
+    mode: str = Field(default="simulation", description="'simulation' for paper trading, 'live' for real Kite broker orders")
     orders: List[GttCandidateOrder]
 
 
@@ -281,21 +282,22 @@ def get_algo_orders_gtt_state(payload: GttStateRequest):
 @app.post("/api/algo-orders/live-gtt")
 def place_algo_orders_live_gtt(payload: LiveGttRequest):
     """
-    Simulated GTT placement endpoint.
-    Creates backend dummy GTT records with prefix DUMMY- in persistent storage.
-    NEVER submits real orders to Kite or calls kite.place_gtt() / kite.place_order().
+    GTT placement endpoint supporting both Paper Simulation and Real Live Broker trading.
+    - If mode == 'simulation': Creates backend dummy GTT records with prefix DUMMY- in persistent storage.
+    - If mode == 'live': Places real Buy GTT orders directly on Zerodha Kite account.
     """
     if not payload.confirm_live:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="confirm_live must be explicitly true to authorize dummy simulation."
+            detail="confirm_live must be explicitly true to authorize order placement."
         )
 
     try:
         orders_dict = [o.model_dump() for o in payload.orders]
-        results = gtt_service.place_dummy_live_gtts(
+        results = gtt_service.execute_gtts(
             orders_dict,
             confirm_live=payload.confirm_live,
+            mode=payload.mode,
             kite_client=kite_manager.kite
         )
         return results
@@ -307,7 +309,7 @@ def place_algo_orders_live_gtt(payload: LiveGttRequest):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unable to create dummy GTT record: {str(e)}"
+            detail=f"Unable to process GTT order: {str(e)}"
         )
 
 

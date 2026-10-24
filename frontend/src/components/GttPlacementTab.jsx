@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
+  ShieldAlert,
   Activity,
   ExternalLink,
   Layers,
   Info,
   CheckCircle2,
   Ban,
-  ArrowUpRight
+  FlaskConical,
+  Zap
 } from 'lucide-react';
 import { fetchGttState } from '../api';
 
@@ -16,7 +18,9 @@ export default function GttPlacementTab({
   gttResults = {},
   livePrices = {},
   wsStatus = 'Idle',
-  tickCount = 0
+  tickCount = 0,
+  tradingMode = 'simulation',
+  setTradingMode
 }) {
   const [selectedSymbol, setSelectedSymbol] = useState(null);
   const [localStates, setLocalStates] = useState({});
@@ -28,6 +32,8 @@ export default function GttPlacementTab({
     const stoploss = buyPrice != null ? Number((buyPrice * 0.95).toFixed(2)) : null;
 
     const existingResult = gttResults[hit.symbol] || localStates[hit.symbol];
+    const triggerId = existingResult?.buy_trigger_id || existingResult?.active_buy_trigger_id || null;
+    const isReal = existingResult?.is_real ?? (triggerId && !String(triggerId).startsWith('DUMMY-'));
 
     return {
       symbol: hit.symbol,
@@ -46,6 +52,7 @@ export default function GttPlacementTab({
       day_buy_order_status: existingResult?.day_buy_order_status ?? null,
       buy_status: existingResult?.buy_status ?? (buyPrice ? (ltp ? 'ready' : 'waiting_for_ltp') : 'not_available'),
       buy_trigger_id: existingResult?.buy_trigger_id ?? null,
+      is_real: Boolean(isReal),
       stoploss_status: existingResult?.stoploss_status ?? 'planned_after_buy',
       stoploss_trigger_id: existingResult?.stoploss_trigger_id ?? null,
       message: existingResult?.message ?? (buyPrice ? 'Ready for buy GTT placement.' : 'Buy price is not available for this row.')
@@ -106,16 +113,22 @@ export default function GttPlacementTab({
     return { bg: 'var(--bg-primary)', color: 'var(--text-muted)', text: s.toUpperCase() || 'UNKNOWN' };
   };
 
-  const getBuyStatusBadge = (status) => {
+  const getBuyStatusBadge = (status, isReal = false) => {
     const s = String(status || '').toLowerCase();
     if (s === 'success') {
+      if (isReal) {
+        return { bg: '#ecfdf5', color: '#059669', text: 'SUCCESS (LIVE GTT)' };
+      }
       return { bg: 'var(--accent-green-subtle)', color: 'var(--accent-green)', text: 'SUCCESS (DUMMY)' };
     }
     if (s === 'ready') {
       return { bg: '#ecfdf5', color: '#059669', text: 'READY' };
     }
     if (s === 'already_active') {
-      return { bg: 'var(--accent-blue-subtle)', color: 'var(--accent-blue)', text: 'ALREADY ACTIVE' };
+      if (isReal) {
+        return { bg: '#eff6ff', color: '#2563eb', text: 'ACTIVE IN KITE' };
+      }
+      return { bg: 'var(--accent-blue-subtle)', color: 'var(--accent-blue)', text: 'ALREADY ACTIVE (DUMMY)' };
     }
     if (s === 'blocked') {
       return { bg: 'var(--danger-subtle)', color: 'var(--danger)', text: 'BLOCKED' };
@@ -132,14 +145,23 @@ export default function GttPlacementTab({
     return { bg: 'var(--bg-primary)', color: 'var(--text-muted)', text: s.toUpperCase() || 'CHECKING' };
   };
 
-  const dummyCount = candidates.filter((c) => c.buy_trigger_id && String(c.buy_trigger_id).startsWith('DUMMY-')).length;
+  const dummyCount = candidates.filter((c) => {
+    const tid = String(c.buy_trigger_id || c.active_buy_trigger_id || '');
+    return tid && tid.startsWith('DUMMY-');
+  }).length;
+
+  const realCount = candidates.filter((c) => {
+    const tid = String(c.buy_trigger_id || c.active_buy_trigger_id || '');
+    return tid && (c.is_real || !tid.startsWith('DUMMY-'));
+  }).length;
+
   const blockedCount = candidates.filter((c) => c.buy_status === 'blocked' || c.buy_status === 'already_active').length;
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {/* Header Card */}
       <div className="card" style={{ padding: '1.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem', flexWrap: 'wrap' }}>
           <span
             style={{
               backgroundColor: 'var(--accent-blue-subtle)',
@@ -161,15 +183,26 @@ export default function GttPlacementTab({
           <span
             style={{
               fontSize: '0.75rem',
-              color: 'var(--text-muted)',
-              backgroundColor: 'var(--bg-primary)',
-              border: '1px solid var(--border-subtle)',
+              color: tradingMode === 'live' ? 'var(--danger)' : '#16a34a',
+              backgroundColor: tradingMode === 'live' ? 'var(--danger-subtle)' : '#f0fdf4',
+              border: `1px solid ${tradingMode === 'live' ? '#fecdd3' : '#bbf7d0'}`,
               padding: '2px 8px',
               borderRadius: 'var(--radius-sm)',
-              fontWeight: 600,
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
             }}
           >
-            Read-Only Simulation Mode
+            {tradingMode === 'live' ? (
+              <>
+                <ShieldAlert size={12} /> Live Broker Mode
+              </>
+            ) : (
+              <>
+                <FlaskConical size={12} /> Simulation (Paper Trading)
+              </>
+            )}
           </span>
         </div>
         <h2
@@ -184,15 +217,124 @@ export default function GttPlacementTab({
           GTT Order Placement
         </h2>
         <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-          Read-only status from Algo Signals · Qty 1 · Buy GTT at breakout candle low · Stoploss 5% below buy · State from Kite orders, positions, holdings, and GTTs
+          Status derived from Algo Signals · Qty 1 share · Buy trigger at breakout candle low · Stoploss 5% below buy · Validated against live Kite account state
         </p>
+      </div>
+
+      {/* Mode Status Banner with Segmented Switcher */}
+      <div
+        className="card"
+        style={{
+          padding: '0.85rem 1.25rem',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '1rem',
+          backgroundColor: tradingMode === 'live' ? '#fff1f2' : '#f0fdf4',
+          borderColor: tradingMode === 'live' ? '#fecdd3' : '#bbf7d0',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div
+            style={{
+              padding: '5px 10px',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '0.75rem',
+              fontWeight: 800,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              backgroundColor: tradingMode === 'live' ? 'var(--danger)' : '#16a34a',
+              color: '#ffffff',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            {tradingMode === 'live' ? (
+              <>
+                <ShieldAlert size={14} />
+                LIVE BROKER TRADING
+              </>
+            ) : (
+              <>
+                <FlaskConical size={14} />
+                SIMULATION (PAPER TRADING)
+              </>
+            )}
+          </div>
+          <span style={{ fontSize: '0.825rem', color: tradingMode === 'live' ? '#9f1239' : '#166534', fontWeight: 500 }}>
+            {tradingMode === 'live'
+              ? 'Real broker submission is active. Orders placed via "Place Real GTTs" in Algo Signals tab submit directly to Zerodha Kite Connect API.'
+              : 'Safe sandbox mode active. Order placement simulates Kite GTTs locally with DUMMY- trigger IDs without placing real orders.'}
+          </span>
+        </div>
+
+        {setTradingMode && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>ACTIVE MODE:</span>
+            <div
+              style={{
+                display: 'inline-flex',
+                backgroundColor: 'var(--bg-primary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                padding: '3px',
+                gap: '2px',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setTradingMode('simulation')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: 'none',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  backgroundColor: tradingMode === 'simulation' ? '#16a34a' : 'transparent',
+                  color: tradingMode === 'simulation' ? '#ffffff' : 'var(--text-muted)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <FlaskConical size={12} />
+                Simulation
+              </button>
+              <button
+                type="button"
+                onClick={() => setTradingMode('live')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: 'none',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  backgroundColor: tradingMode === 'live' ? 'var(--danger)' : 'transparent',
+                  color: tradingMode === 'live' ? '#ffffff' : 'var(--text-muted)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Zap size={12} />
+                Live Broker
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Metrics Row */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
           gap: '1rem',
         }}
       >
@@ -220,21 +362,44 @@ export default function GttPlacementTab({
         <div className="card" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Dummy GTTs Active
+              Real Kite GTTs Active
             </div>
-            <div style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--accent-green)', marginTop: '2px' }}>
-              {dummyCount}
+            <div style={{ fontSize: '1.45rem', fontWeight: 800, color: realCount > 0 ? '#059669' : 'var(--text-dim)', marginTop: '2px' }}>
+              {realCount}
             </div>
           </div>
           <div
             style={{
-              backgroundColor: 'var(--accent-green-subtle)',
-              color: 'var(--accent-green)',
+              backgroundColor: realCount > 0 ? '#ecfdf5' : 'var(--bg-primary)',
+              color: realCount > 0 ? '#059669' : 'var(--text-dim)',
+              border: '1px solid var(--border-subtle)',
               padding: '10px',
               borderRadius: 'var(--radius-md)',
             }}
           >
             <CheckCircle2 size={20} />
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+              Dummy GTTs Active
+            </div>
+            <div style={{ fontSize: '1.45rem', fontWeight: 800, color: dummyCount > 0 ? '#d97706' : 'var(--text-dim)', marginTop: '2px' }}>
+              {dummyCount}
+            </div>
+          </div>
+          <div
+            style={{
+              backgroundColor: dummyCount > 0 ? '#fffbeb' : 'var(--bg-primary)',
+              color: dummyCount > 0 ? '#d97706' : 'var(--text-dim)',
+              border: '1px solid var(--border-subtle)',
+              padding: '10px',
+              borderRadius: 'var(--radius-md)',
+            }}
+          >
+            <FlaskConical size={20} />
           </div>
         </div>
 
@@ -324,10 +489,10 @@ export default function GttPlacementTab({
             }}
           >
             <ShieldCheck size={18} color="var(--accent-blue)" />
-            Kite GTT Placement
+            Kite GTT Placement Table
           </h3>
           <span style={{ fontSize: '0.775rem', color: 'var(--text-muted)' }}>
-            Read-only status • Trigger dummy creation via 'Run Live' button in Algo Signals tab
+            Trigger execution via '{tradingMode === 'live' ? 'Place Real GTTs' : 'Run Simulation'}' button in Algo Signals tab
           </span>
         </div>
 
@@ -382,7 +547,7 @@ export default function GttPlacementTab({
                   <th style={{ padding: '0.75rem 0.85rem', textAlign: 'right' }}>Last Price</th>
                   <th style={{ padding: '0.75rem 0.85rem' }}>Account State</th>
                   <th style={{ padding: '0.75rem 0.85rem' }}>Buy Status</th>
-                  <th style={{ padding: '0.75rem 0.85rem' }}>Buy Trigger</th>
+                  <th style={{ padding: '0.75rem 0.85rem' }}>Buy Trigger ID</th>
                   <th style={{ padding: '0.75rem 0.85rem' }}>Day Buy Order</th>
                   <th style={{ padding: '0.75rem 0.6rem', textAlign: 'center' }}>Position Qty</th>
                   <th style={{ padding: '0.75rem 0.85rem' }}>Stoploss Status</th>
@@ -398,7 +563,7 @@ export default function GttPlacementTab({
                     : `https://kite.zerodha.com/chart/ext/tvc/NSE/${encodeURIComponent(row.symbol)}`;
 
                   const acctBadge = getAccountStateBadge(row.account_state);
-                  const buyBadge = getBuyStatusBadge(row.buy_status);
+                  const buyBadge = getBuyStatusBadge(row.buy_status, row.is_real);
 
                   return (
                     <tr
@@ -527,13 +692,44 @@ export default function GttPlacementTab({
                         </span>
                       </td>
 
-                      <td style={{ padding: '0.7rem 0.85rem', fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        {row.buy_trigger_id || row.active_buy_trigger_id || '-'}
+                      <td style={{ padding: '0.7rem 0.85rem', fontSize: '0.75rem' }}>
+                        {(() => {
+                          const tid = row.buy_trigger_id || row.active_buy_trigger_id;
+                          if (!tid) return <span style={{ color: 'var(--text-muted)' }}>-</span>;
+                          const isReal = row.is_real || !String(tid).startsWith('DUMMY-');
+                          return (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                              <span
+                                style={{
+                                  backgroundColor: isReal ? '#ecfdf5' : '#fffbeb',
+                                  color: isReal ? '#059669' : '#b45309',
+                                  fontSize: '0.65rem',
+                                  fontWeight: 800,
+                                  padding: '1px 5px',
+                                  borderRadius: '3px',
+                                  border: `1px solid ${isReal ? '#a7f3d0' : '#fde68a'}`,
+                                  letterSpacing: '0.02em',
+                                }}
+                              >
+                                {isReal ? 'REAL GTT' : 'DUMMY'}
+                              </span>
+                              <span
+                                style={{
+                                  fontFamily: 'monospace',
+                                  color: isReal ? 'var(--text-main)' : 'var(--text-muted)',
+                                  fontWeight: isReal ? 700 : 500,
+                                }}
+                              >
+                                {tid}
+                              </span>
+                            </span>
+                          );
+                        })()}
                       </td>
 
                       <td style={{ padding: '0.7rem 0.85rem', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
                         {row.day_buy_order_id ? (
-                          <span style={{ color: 'var(--danger)' }}>
+                          <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
                             {row.day_buy_order_id} ({row.day_buy_order_status})
                           </span>
                         ) : (
@@ -612,6 +808,35 @@ export default function GttPlacementTab({
                 <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                   {selectedItem.companyName}
                 </span>
+                {selectedItem.is_real ? (
+                  <span
+                    style={{
+                      backgroundColor: '#ecfdf5',
+                      color: '#059669',
+                      fontSize: '0.7rem',
+                      fontWeight: 800,
+                      padding: '2px 6px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid #a7f3d0',
+                    }}
+                  >
+                    REAL BROKER ORDER
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      backgroundColor: '#fffbeb',
+                      color: '#b45309',
+                      fontSize: '0.7rem',
+                      fontWeight: 800,
+                      padding: '2px 6px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid #fde68a',
+                    }}
+                  >
+                    PAPER TRADING
+                  </span>
+                )}
               </div>
             </div>
 
@@ -639,7 +864,9 @@ export default function GttPlacementTab({
             }}
           >
             <div style={{ backgroundColor: 'var(--bg-primary)', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: 600 }}>Dummy Buy Trigger</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: 600 }}>
+                {selectedItem.is_real ? 'Live Buy Trigger' : 'Dummy Buy Trigger'}
+              </div>
               <div style={{ color: 'var(--accent-blue)', fontWeight: 700, fontSize: '1.1rem', marginTop: '2px' }}>
                 {selectedItem.buy_price != null ? `₹${selectedItem.buy_price.toFixed(2)}` : 'N/A'}
               </div>
@@ -674,7 +901,9 @@ export default function GttPlacementTab({
                 {selectedItem.buy_trigger_id || selectedItem.active_buy_trigger_id || 'None'}
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '2px' }}>
-                Simulated trigger ID with DUMMY- prefix
+                {selectedItem.is_real || (!String(selectedItem.buy_trigger_id || '').startsWith('DUMMY-') && selectedItem.buy_trigger_id)
+                  ? 'Real Zerodha Kite GTT trigger ID registered on broker'
+                  : 'Simulated trigger ID with DUMMY- prefix (Safe paper trading)'}
               </div>
             </div>
           </div>

@@ -160,7 +160,7 @@ export async function fetchGttState(orders = []) {
   return Array.isArray(data) ? data : data.results || [];
 }
 
-export async function placeLiveGtt(orders = [], confirmLive = true) {
+export async function placeLiveGtt(orders = [], confirmLive = true, mode = 'simulation') {
   const res = await fetch(`${BASE_URL}/algo-orders/live-gtt`, {
     method: 'POST',
     headers: {
@@ -168,12 +168,13 @@ export async function placeLiveGtt(orders = [], confirmLive = true) {
     },
     body: JSON.stringify({
       confirm_live: Boolean(confirmLive),
+      mode,
       orders,
     }),
   });
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data.detail || 'Failed to place dummy live GTTs.');
+    throw new Error(data.detail || 'Failed to place GTT orders.');
   }
   return Array.isArray(data) ? data : data.results || [];
 }

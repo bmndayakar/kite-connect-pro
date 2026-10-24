@@ -11,7 +11,10 @@ import {
   TrendingUp,
   Layers,
   Database,
-  Play
+  Play,
+  ShieldCheck,
+  ShieldAlert,
+  X
 } from 'lucide-react';
 import { fetchScannerData, fetchOhlcSnapshot, fetchGttState, placeLiveGtt } from '../api';
 
@@ -26,7 +29,9 @@ export default function AlgoSignalsTab({
   tickCount = 0,
   onSignalsUpdated,
   onGttResultsUpdated,
-  gttResults = {}
+  gttResults = {},
+  tradingMode = 'simulation',
+  setTradingMode
 }) {
   const [loading, setLoading] = useState(results.length === 0);
   const [refreshing, setRefreshing] = useState(false);
@@ -35,6 +40,7 @@ export default function AlgoSignalsTab({
   const [runLiveMessage, setRunLiveMessage] = useState(null);
   const [runLiveError, setRunLiveError] = useState(null);
   const [selectedSymbol, setSelectedSymbol] = useState(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   // Normalization logic
   const normalizeCandles = (rawCandles) => {
@@ -229,13 +235,23 @@ export default function AlgoSignalsTab({
     }
   }, []);
 
-  const handleRunLive = async () => {
+  const handleActionClick = () => {
+    if (tradingMode === 'live') {
+      setShowConfirmModal(true);
+    } else {
+      executeWorkflow('simulation');
+    }
+  };
+
+  const executeWorkflow = async (mode) => {
+    setShowConfirmModal(false);
     try {
       setIsRunningLive(true);
       setRunLiveError(null);
       setRunLiveMessage(null);
       setError(null);
 
+      // Force-refresh scanner data
       const resp = await fetchScannerData(true);
       const stocksList = resp.stocks || [];
       const { scanned, hits } = runBreakoutScanner(stocksList);
@@ -317,7 +333,7 @@ export default function AlgoSignalsTab({
           stoploss: r.stoploss,
           last_price: r.last_price,
         }));
-        liveResults = await placeLiveGtt(ordersToPlace, true);
+        liveResults = await placeLiveGtt(ordersToPlace, true, mode);
       }
 
       const liveMap = {};
@@ -343,18 +359,29 @@ export default function AlgoSignalsTab({
 
       const createdCount = liveResults.filter((r) => r.buy_status === 'success').length;
       const skippedCount = candidateOrders.length - createdCount;
+      const modeLabel = mode === 'live' ? 'REAL Zerodha GTT' : 'dummy simulated GTT';
+
       setRunLiveMessage(
-        `Run Live complete: ${createdCount} dummy GTT created, ${skippedCount} skipped. View GTT Placement tab.`
+        `Execution finished (${mode.toUpperCase()} MODE): ${createdCount} ${modeLabel} placed, ${skippedCount} skipped. View GTT Placement tab.`
       );
     } catch (err) {
-      console.error('[AlgoSignals] Run Live error:', err);
-      setRunLiveError(err.message || 'Run Live execution failed.');
+      console.error('[AlgoSignals] Execution error:', err);
+      setRunLiveError(err.message || 'Execution failed.');
     } finally {
       setIsRunningLive(false);
     }
   };
 
   const selectedItem = results.find((r) => r.symbol === selectedSymbol) || results[0];
+
+  // Candidates for confirmation modal
+  const readyCandidates = results.map((h) => ({
+    symbol: h.symbol,
+    buy_price: h.breakoutLow,
+    stoploss: h.breakoutLow ? Number((h.breakoutLow * 0.95).toFixed(2)) : null,
+  })).filter((c) => c.buy_price);
+
+  const totalCapitalRequired = readyCandidates.reduce((acc, c) => acc + (c.buy_price || 0), 0);
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -419,8 +446,71 @@ export default function AlgoSignalsTab({
             </p>
           </div>
 
-          {/* Action Buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {/* Action Controls & Mode Toggle */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
+            {/* Mode Switcher Pill */}
+            {setTradingMode && (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  backgroundColor: 'var(--bg-primary)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border-subtle)',
+                  padding: '3px',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setTradingMode('simulation')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '5px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: 'pointer',
+                    backgroundColor: tradingMode === 'simulation' ? '#ffffff' : 'transparent',
+                    color: tradingMode === 'simulation' ? '#b45309' : 'var(--text-muted)',
+                    boxShadow: tradingMode === 'simulation' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Paper trading: zero real money, dummy records only"
+                >
+                  <Zap size={13} color={tradingMode === 'simulation' ? '#b45309' : 'var(--text-dim)'} />
+                  <span>Simulation</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTradingMode('live')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '5px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    border: 'none',
+                    cursor: 'pointer',
+                    backgroundColor: tradingMode === 'live' ? 'var(--danger)' : 'transparent',
+                    color: tradingMode === 'live' ? '#ffffff' : 'var(--text-muted)',
+                    boxShadow: tradingMode === 'live' ? '0 1px 4px rgba(220, 38, 38, 0.3)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Live broker mode: places real GTT orders on Zerodha Kite"
+                >
+                  <ShieldAlert size={13} color={tradingMode === 'live' ? '#ffffff' : 'var(--text-dim)'} />
+                  <span>Live Broker</span>
+                </button>
+              </div>
+            )}
+
+            {/* Refresh Scanner Button */}
             <button
               onClick={() => loadData(true)}
               disabled={loading || refreshing || isRunningLive}
@@ -429,7 +519,7 @@ export default function AlgoSignalsTab({
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.45rem',
-                padding: '0.6rem 1rem',
+                padding: '0.55rem 0.95rem',
                 fontSize: '0.825rem',
                 fontWeight: 600,
                 cursor: loading || refreshing || isRunningLive ? 'not-allowed' : 'pointer',
@@ -437,31 +527,77 @@ export default function AlgoSignalsTab({
               title="Force refresh candles and rescan"
             >
               <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-              <span>{refreshing ? 'Scanning...' : 'Refresh Scanner'}</span>
+              <span>{refreshing ? 'Scanning...' : 'Refresh'}</span>
             </button>
 
+            {/* Trigger Button (Dynamic based on mode) */}
             <button
-              onClick={handleRunLive}
+              onClick={handleActionClick}
               disabled={loading || refreshing || isRunningLive}
-              className="btn btn-primary"
+              className="btn"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.45rem',
-                padding: '0.6rem 1.25rem',
+                padding: '0.55rem 1.15rem',
                 fontSize: '0.825rem',
                 fontWeight: 700,
                 cursor: loading || refreshing || isRunningLive ? 'not-allowed' : 'pointer',
                 opacity: isRunningLive ? 0.75 : 1,
+                backgroundColor: tradingMode === 'live' ? 'var(--danger)' : 'var(--accent-kite)',
+                color: '#ffffff',
+                boxShadow: tradingMode === 'live' ? '0 2px 10px rgba(220, 38, 38, 0.3)' : 'var(--shadow-glow)',
+                border: 'none',
               }}
-              title="Rerun scanner and simulate dummy GTT order placement"
+              title={tradingMode === 'live' ? 'Open pre-trade confirmation to place real GTT orders on Zerodha' : 'Rerun scanner and simulate dummy GTT order placement'}
             >
-              <Play size={14} className={isRunningLive ? 'animate-pulse' : ''} fill="white" />
-              <span>{isRunningLive ? 'Running...' : 'Run Live'}</span>
+              {tradingMode === 'live' ? (
+                <ShieldCheck size={14} className={isRunningLive ? 'animate-pulse' : ''} />
+              ) : (
+                <Play size={14} className={isRunningLive ? 'animate-pulse' : ''} fill="white" />
+              )}
+              <span>
+                {isRunningLive
+                  ? 'Processing...'
+                  : tradingMode === 'live'
+                  ? 'Place Real GTTs'
+                  : 'Run Simulation'}
+              </span>
             </button>
           </div>
         </div>
       </div>
+
+      {/* Live Mode Warning Notice (Shown when in Live Broker mode) */}
+      {tradingMode === 'live' && (
+        <div
+          className="alert"
+          style={{
+            backgroundColor: 'var(--danger-subtle)',
+            border: '1px solid rgba(220, 38, 38, 0.25)',
+            color: 'var(--danger)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0.75rem 1.15rem',
+            fontSize: '0.85rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <ShieldAlert size={18} color="var(--danger)" style={{ flexShrink: 0 }} />
+            <span>
+              <strong>LIVE BROKER MODE ACTIVE:</strong> Clicking <strong>Place Real GTTs</strong> will submit real buy GTT orders directly to your connected Zerodha Kite account (Qty: 1 per stock, CNC).
+            </span>
+          </div>
+          <button
+            onClick={() => setTradingMode('simulation')}
+            className="btn btn-secondary"
+            style={{ fontSize: '0.75rem', padding: '0.3rem 0.75rem', whiteSpace: 'nowrap' }}
+          >
+            Switch to Simulation
+          </button>
+        </div>
+      )}
 
       {/* Feedback Messages */}
       {runLiveMessage && (
@@ -483,7 +619,7 @@ export default function AlgoSignalsTab({
         <div className="alert alert-error" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1.15rem' }}>
           <AlertTriangle size={18} color="var(--danger)" />
           <div>
-            <strong>Run Live Error: </strong>
+            <strong>Execution Error: </strong>
             {runLiveError}
           </div>
         </div>
@@ -540,22 +676,40 @@ export default function AlgoSignalsTab({
         <div className="card" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Stocks Scanned
+              Trading Mode
             </div>
-            <div style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--text-main)', marginTop: '2px' }}>
-              {loading ? '-' : scannedStocksCount}
+            <div
+              style={{
+                fontSize: '1.1rem',
+                fontWeight: 800,
+                color: tradingMode === 'live' ? 'var(--danger)' : '#b45309',
+                marginTop: '2px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <span
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor: tradingMode === 'live' ? 'var(--danger)' : '#b45309',
+                  display: 'inline-block',
+                }}
+              />
+              {tradingMode === 'live' ? 'LIVE BROKER' : 'SIMULATION'}
             </div>
           </div>
           <div
             style={{
-              backgroundColor: 'var(--bg-primary)',
-              color: 'var(--text-muted)',
+              backgroundColor: tradingMode === 'live' ? 'var(--danger-subtle)' : '#fffbeb',
+              color: tradingMode === 'live' ? 'var(--danger)' : '#b45309',
               padding: '10px',
               borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--border-subtle)',
             }}
           >
-            <Database size={20} />
+            {tradingMode === 'live' ? <ShieldAlert size={20} /> : <Zap size={20} />}
           </div>
         </div>
 
@@ -981,6 +1135,145 @@ export default function AlgoSignalsTab({
               <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '2px' }}>
                 Within ±1.0% tolerance band
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pre-Trade Safety Confirmation Modal */}
+      {showConfirmModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '1rem',
+          }}
+        >
+          <div
+            className="card animate-fade-in"
+            style={{
+              maxWidth: '520px',
+              width: '100%',
+              padding: '1.75rem',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              border: '2px solid var(--danger)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div
+                  style={{
+                    backgroundColor: 'var(--danger-subtle)',
+                    color: 'var(--danger)',
+                    padding: '8px',
+                    borderRadius: 'var(--radius-md)',
+                  }}
+                >
+                  <ShieldAlert size={24} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
+                    Confirm Real GTT Orders
+                  </h3>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--danger)', fontWeight: 700, textTransform: 'uppercase' }}>
+                    Live Broker Trading
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div
+              className="alert alert-error"
+              style={{
+                fontSize: '0.825rem',
+                lineHeight: 1.5,
+                marginBottom: '1rem',
+                padding: '0.75rem 1rem',
+              }}
+            >
+              You are about to place <strong>REAL BUY GTT orders</strong> on your Zerodha account using Kite Connect API. Quantity is strictly <strong>1 share</strong> per stock.
+            </div>
+
+            {/* Candidate Summary Table */}
+            <div style={{ maxHeight: '180px', overflowY: 'auto', marginBottom: '1rem', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                    <th style={{ padding: '6px 10px' }}>Stock</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'center' }}>Qty</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'right' }}>Buy Price</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'right' }}>5% Stoploss</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {readyCandidates.map((c) => (
+                    <tr key={c.symbol} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <td style={{ padding: '6px 10px', fontWeight: 700, color: 'var(--text-main)' }}>{c.symbol}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'center' }}>1</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 600 }}>₹{c.buy_price.toFixed(2)}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--danger)' }}>₹{c.stoploss.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '0.825rem',
+                color: 'var(--text-muted)',
+                marginBottom: '1.25rem',
+                padding: '0 4px',
+              }}
+            >
+              <span>Total Orders to Place: <strong>{readyCandidates.length}</strong></span>
+              <span>Total Capital Exposure: <strong>₹{totalCapitalRequired.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowConfirmModal(false)}
+                className="btn btn-secondary"
+                style={{ padding: '0.55rem 1.1rem', fontSize: '0.85rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => executeWorkflow('live')}
+                className="btn"
+                style={{
+                  backgroundColor: 'var(--danger)',
+                  color: '#ffffff',
+                  padding: '0.55rem 1.25rem',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  border: 'none',
+                  boxShadow: '0 2px 8px rgba(220, 38, 38, 0.4)',
+                  cursor: 'pointer',
+                }}
+              >
+                Confirm & Place Real GTTs
+              </button>
             </div>
           </div>
         </div>

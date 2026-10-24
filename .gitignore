@@ -1,6 +1,8 @@
 # Secrets and Authentication (Never commit real credentials or session tokens)
 credentials.txt
 backend/session.json
+backend/data/
+*.json.bak
 .env
 .env.local
 .env.*.local
