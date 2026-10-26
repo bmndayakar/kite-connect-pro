@@ -129,3 +129,4 @@ Before creating any GTT (dummy or live), the backend validates:
 * **Documentation & Reference**:
   * [`zerodha_prompt.md`](file:///c:/Users/dayam/Documents/dabbulu-bokka-pani/zerodha_prompt.md): Official instructions from Zerodha for AI coding agents.
   * [`docs/kite_connect/`](file:///c:/Users/dayam/Documents/dabbulu-bokka-pani/docs/kite_connect): Full offline suite of official Kite Connect v3 markdown files.
+

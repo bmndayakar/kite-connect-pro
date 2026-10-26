@@ -305,7 +305,7 @@ export default function AlgoSignalsTab({
         };
       });
 
-      const stateResults = await fetchGttState(candidateOrders);
+      const stateResults = await fetchGttState(candidateOrders, mode);
       const stateMap = {};
       stateResults.forEach((st) => {
         if (st && st.symbol) {

@@ -141,6 +141,7 @@ class KiteSessionManager:
         except Exception as e:
             # Token might be expired (Zerodha tokens expire daily at 6 AM)
             print(f"[KiteManager] Stored session validation failed: {e}")
+            self.kite = None
             return {"authenticated": False, "message": f"Token expired or invalid: {str(e)}"}
 
     def get_user_profile(self) -> Dict[str, Any]:

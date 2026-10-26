@@ -19,3 +19,4 @@
 - Respect API rate limits: Quotes (1 req/s), Historical (3 req/s), Orders (10 req/s, max 400/min, 5000/day).
 - Daily access token reset occurs at 06:00 AM IST.
 - Clear cached session and prompt for login when `TokenException` (HTTP 403) is encountered.
+

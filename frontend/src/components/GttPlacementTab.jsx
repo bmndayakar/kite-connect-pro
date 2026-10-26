@@ -9,9 +9,10 @@ import {
   CheckCircle2,
   Ban,
   FlaskConical,
-  Zap
+  Zap,
+  Trash2
 } from 'lucide-react';
-import { fetchGttState } from '../api';
+import { fetchGttState, clearDummyGtts } from '../api';
 
 export default function GttPlacementTab({
   algoResults = [],
@@ -24,6 +25,7 @@ export default function GttPlacementTab({
 }) {
   const [selectedSymbol, setSelectedSymbol] = useState(null);
   const [localStates, setLocalStates] = useState({});
+  const [isClearingDummies, setIsClearingDummies] = useState(false);
 
   // Derive GTT candidates strictly from current Algo Signals
   const candidates = algoResults.map((hit) => {
@@ -76,7 +78,7 @@ export default function GttPlacementTab({
           last_price: c.last_price
         }));
 
-        const states = await fetchGttState(ordersToCheck);
+        const states = await fetchGttState(ordersToCheck, tradingMode);
         const map = {};
         states.forEach((st) => {
           if (st && st.symbol) {
@@ -92,7 +94,24 @@ export default function GttPlacementTab({
     if (algoResults.length > 0) {
       loadInitialStates();
     }
-  }, [algoResults]);
+  }, [algoResults, tradingMode]);
+
+  const handleClearDummies = async () => {
+    if (!window.confirm('Clear all paper-trading simulated dummy orders? Real Kite broker orders will remain untouched.')) {
+      return;
+    }
+    try {
+      setIsClearingDummies(true);
+      await clearDummyGtts();
+      setLocalStates({});
+      window.location.reload();
+    } catch (err) {
+      console.error('[GttPlacement] Clear dummies failed:', err);
+      alert('Failed to clear simulated GTTs: ' + (err.message || err));
+    } finally {
+      setIsClearingDummies(false);
+    }
+  };
 
   const selectedItem = candidates.find((c) => c.symbol === selectedSymbol) || candidates[0];
 
@@ -383,8 +402,32 @@ export default function GttPlacementTab({
 
         <div className="card" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Dummy GTTs Active
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>Dummy GTTs Active</span>
+              {dummyCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearDummies}
+                  disabled={isClearingDummies}
+                  style={{
+                    border: '1px solid #fde68a',
+                    backgroundColor: '#fffbeb',
+                    color: '#b45309',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.65rem',
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    cursor: isClearingDummies ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '3px',
+                  }}
+                  title="Wipe out local simulation records (does not affect real broker orders)"
+                >
+                  <Trash2 size={10} />
+                  {isClearingDummies ? 'Clearing...' : 'Clear'}
+                </button>
+              )}
             </div>
             <div style={{ fontSize: '1.45rem', fontWeight: 800, color: dummyCount > 0 ? '#d97706' : 'var(--text-dim)', marginTop: '2px' }}>
               {dummyCount}

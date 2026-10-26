@@ -115,7 +115,8 @@ class GttService:
         order: Dict[str, Any],
         kite_state: Dict[str, Any],
         dummy_records: List[Dict[str, Any]],
-        tick_size: float = 0.05
+        tick_size: float = 0.05,
+        mode: str = "simulation"
     ) -> Dict[str, Any]:
         """
         Evaluates a single candidate order against Kite state and dummy store.
@@ -229,11 +230,16 @@ class GttService:
                         elif g_ord.get("transaction_type") == "SELL":
                             res["active_stoploss_trigger_id"] = str(g.get("id"))
 
-        # 6. Check active dummy buy GTT in local storage
+        # 6. Check active dummy/real buy GTT in local storage
         for d in dummy_records:
             if d.get("symbol") == sym and d.get("status") == "active":
                 did = d.get("trigger_id", "")
                 is_real_rec = d.get("is_real", False)
+                # In LIVE mode, ONLY block if there is an active REAL broker GTT
+                # Simulation dummy records must NEVER block real live orders!
+                if mode == "live" and not is_real_rec:
+                    continue
+
                 res["buy_trigger_id"] = did
                 res["is_real"] = is_real_rec
                 res["account_state"] = "already_active"
@@ -254,7 +260,7 @@ class GttService:
         res["message"] = "Ready for buy GTT placement."
         return res
 
-    def get_gtt_states(self, orders: List[Dict[str, Any]], kite_client=None) -> List[Dict[str, Any]]:
+    def get_gtt_states(self, orders: List[Dict[str, Any]], mode: str = "simulation", kite_client=None) -> List[Dict[str, Any]]:
         """
         Read-only state check endpoint implementation for POST /api/algo-orders/gtt-state.
         Never calls any broker order methods.
@@ -265,9 +271,18 @@ class GttService:
 
             results = []
             for ord_data in orders:
-                st = self.check_candidate_state(ord_data, kite_state, dummy_records)
+                st = self.check_candidate_state(ord_data, kite_state, dummy_records, mode=mode)
                 results.append(st)
             return results
+
+    def clear_dummy_records(self) -> int:
+        """Clears all paper-trading simulated dummy records, keeping real broker records."""
+        with self.lock:
+            records = self._load_dummy_gtts()
+            kept = [r for r in records if r.get("is_real") is True]
+            cleared = len(records) - len(kept)
+            self._save_dummy_gtts(kept)
+            return cleared
 
     def execute_gtts(
         self,
@@ -286,8 +301,14 @@ class GttService:
 
         is_live_mode = (mode == "live")
 
-        if is_live_mode and not kite_client:
-            raise ValueError("Active Zerodha Kite session is required for Live Trading mode. Please log in first.")
+        if is_live_mode:
+            if not kite_client:
+                raise ValueError("Active Zerodha Kite session is required for Live Trading mode. Please log in first on the User Profile tab.")
+            # Verify session is valid and active for today's market session
+            try:
+                kite_client.profile()
+            except Exception as e:
+                raise ValueError(f"Zerodha session is expired or invalid: {str(e)}. Tokens reset daily at 6:00 AM IST. Please re-login with today's request token on the User Profile tab.")
 
         with self.lock:
             dummy_records = self._load_dummy_gtts()
@@ -297,25 +318,31 @@ class GttService:
             records_modified = False
 
             for ord_data in orders:
-                # Re-verify state under lock
-                state = self.check_candidate_state(ord_data, kite_state, dummy_records)
+                # Re-verify state under lock for the active mode
+                state = self.check_candidate_state(ord_data, kite_state, dummy_records, mode=mode)
 
                 # If ready, proceed based on mode
                 if state["buy_status"] == "ready":
                     sym = state["symbol"]
                     qty = state["quantity"]
-                    buy_price = state["buy_price"]
-                    last_price = state.get("last_price") or buy_price
+                    buy_price = float(state["buy_price"])
+                    last_price = float(state.get("last_price") or buy_price)
+                    tick_size = float(state.get("tick_size") or 0.05)
 
                     if is_live_mode:
                         # REAL BROKER ORDER PLACEMENT VIA KITE CONNECT
                         try:
+                            # Kite OMS rejects GTT if trigger_price == last_price
+                            clean_last_price = last_price
+                            if clean_last_price == buy_price:
+                                clean_last_price = round(buy_price + tick_size, 2)
+
                             gtt_res = kite_client.place_gtt(
                                 trigger_type=kite_client.GTT_TYPE_SINGLE,
                                 tradingsymbol=sym,
                                 exchange="NSE",
                                 trigger_values=[buy_price],
-                                last_price=last_price,
+                                last_price=clean_last_price,
                                 orders=[{
                                     "transaction_type": kite_client.TRANSACTION_TYPE_BUY,
                                     "quantity": qty,
@@ -347,6 +374,8 @@ class GttService:
                                 "is_real": True,
                                 "created_at": datetime.now().isoformat()
                             }
+                            # Remove any prior simulated dummy for this symbol and add the real one
+                            dummy_records = [d for d in dummy_records if d.get("symbol") != sym]
                             dummy_records.append(new_record)
                             records_modified = True
                         except Exception as e:

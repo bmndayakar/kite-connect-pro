@@ -145,19 +145,34 @@ export function getWebSocketUrl(tokens = [], mode = 'full') {
   return `${rootWs}/ws/ticks?tokens=${encodeURIComponent(tokenStr)}&mode=${encodeURIComponent(mode)}`;
 }
 
-export async function fetchGttState(orders = []) {
+export async function fetchGttState(orders = [], mode = 'simulation') {
   const res = await fetch(`${BASE_URL}/algo-orders/gtt-state`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ orders }),
+    body: JSON.stringify({ mode, orders }),
   });
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.detail || 'Failed to check GTT state.');
   }
   return Array.isArray(data) ? data : data.results || [];
+}
+
+export async function clearDummyGtts() {
+  const res = await fetch(`${BASE_URL}/algo-orders/clear-dummy-gtts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || 'Failed to clear simulated GTTs.');
+  }
+  return data;
 }
 
 export async function placeLiveGtt(orders = [], confirmLive = true, mode = 'simulation') {

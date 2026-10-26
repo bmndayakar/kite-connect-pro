@@ -253,6 +253,7 @@ class GttCandidateOrder(BaseModel):
     last_price: Optional[float] = Field(default=None, description="Last traded price")
 
 class GttStateRequest(BaseModel):
+    mode: str = Field(default="simulation", description="'simulation' or 'live'")
     orders: List[GttCandidateOrder]
 
 class LiveGttRequest(BaseModel):
@@ -270,12 +271,27 @@ def get_algo_orders_gtt_state(payload: GttStateRequest):
     """
     try:
         orders_dict = [o.model_dump() for o in payload.orders]
-        results = gtt_service.get_gtt_states(orders_dict, kite_client=kite_manager.kite)
+        results = gtt_service.get_gtt_states(orders_dict, mode=payload.mode, kite_client=kite_manager.kite)
         return results
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to check GTT state: {str(e)}"
+        )
+
+
+@app.post("/api/algo-orders/clear-dummy-gtts")
+def clear_algo_orders_dummy_gtts():
+    """
+    Clears all simulated dummy GTT records. Real broker Kite GTT records remain intact.
+    """
+    try:
+        cleared = gtt_service.clear_dummy_records()
+        return {"success": True, "cleared_count": cleared}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear dummy GTTs: {str(e)}"
         )
 
 
